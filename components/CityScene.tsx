@@ -163,7 +163,43 @@ function Kaiju({ target, pulse, strength }: { target: { x: number; z: number } |
       group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, -0.75, delta * 2.5);
     }
     stompAge.current += delta;
-    const stomp = progress.current > 0.7 && progress.current < 0.92;\n    if (debris.current) {\n      for (let i = 0; i < 48; i++) {\n        const active = stompAge.current < 1.8;\n        const seed = i * 12.9898;\n        const angle = seed % (Math.PI * 2);\n        const speed = 1.2 + (i % 7) * 0.32;\n        const t = stompAge.current;\n        const x = Math.cos(angle) * speed * t;\n        const z = Math.sin(angle) * speed * t;\n        const y = Math.max(0.05, (i % 5) * 0.22 + 3.8 * t - 5.2 * t * t);\n        debrisDummy.position.set(targetPos.current.x + x, y, targetPos.current.z + z);\n        debrisDummy.rotation.set(t * (i % 3), t * 2, t * 3);\n        const scale = active ? (0.06 + (i % 4) * 0.035) * Math.max(0, 1 - t / 1.8) : 0;\n        debrisDummy.scale.setScalar(scale); debrisDummy.updateMatrix(); debris.current.setMatrixAt(i, debrisDummy.matrix);\n      } debris.current.instanceMatrix.needsUpdate = true;\n    }\n    if (fire.current) {\n      for (let i = 0; i < 20; i++) { const active = stompAge.current < 4; const angle = i * 2.399; const t = state.clock.elapsedTime; debrisDummy.position.set(targetPos.current.x + Math.cos(angle) * (1.1 + Math.sin(t * 3 + i) * .2), active ? .25 + Math.abs(Math.sin(t * 4 + i)) * 1.25 : -3, targetPos.current.z + Math.sin(angle) * (1.1 + Math.cos(t * 2 + i) * .2)); debrisDummy.scale.setScalar(active ? .05 + Math.abs(Math.sin(t * 6 + i)) * .1 : 0); debrisDummy.rotation.set(0,0,t); debrisDummy.updateMatrix(); fire.current.setMatrixAt(i, debrisDummy.matrix); } fire.current.instanceMatrix.needsUpdate = true; }
+    const stomp = progress.current > 0.7 && progress.current < 0.92;
+    if (debris.current) {
+      for (let i = 0; i < 48; i++) {
+        const active = stompAge.current < 1.8;
+        const seed = i * 12.9898;
+        const angle = seed % (Math.PI * 2);
+        const speed = 1.2 + (i % 7) * 0.32;
+        const t = stompAge.current;
+        const x = Math.cos(angle) * speed * t;
+        const z = Math.sin(angle) * speed * t;
+        const y = Math.max(0.05, (i % 5) * 0.22 + 3.8 * t - 5.2 * t * t);
+        debrisDummy.position.set(targetPos.current.x + x, y, targetPos.current.z + z);
+        debrisDummy.rotation.set(t * (i % 3), t * 2, t * 3);
+        const scale = active ? (0.06 + (i % 4) * 0.035) * Math.max(0, 1 - t / 1.8) : 0;
+        debrisDummy.scale.setScalar(scale);
+        debrisDummy.updateMatrix();
+        debris.current.setMatrixAt(i, debrisDummy.matrix);
+      }
+      debris.current.instanceMatrix.needsUpdate = true;
+    }
+    if (fire.current) {
+      for (let i = 0; i < 20; i++) {
+        const active = stompAge.current < 4;
+        const angle = i * 2.399;
+        const t = state.clock.elapsedTime;
+        debrisDummy.position.set(
+          targetPos.current.x + Math.cos(angle) * (1.1 + Math.sin(t * 3 + i) * 0.2),
+          active ? 0.25 + Math.abs(Math.sin(t * 4 + i)) * 1.25 : -3,
+          targetPos.current.z + Math.sin(angle) * (1.1 + Math.cos(t * 2 + i) * 0.2)
+        );
+        debrisDummy.scale.setScalar(active ? 0.05 + Math.abs(Math.sin(t * 6 + i)) * 0.1 : 0);
+        debrisDummy.rotation.set(0, 0, t);
+        debrisDummy.updateMatrix();
+        fire.current.setMatrixAt(i, debrisDummy.matrix);
+      }
+      fire.current.instanceMatrix.needsUpdate = true;
+    }
     const bob = Math.sin(state.clock.elapsedTime * 2.1) * 0.07;
     const kaijuScale = 1.06 + strength * 0.025;
     group.current.position.y = stomp ? -0.15 * strength : bob;
