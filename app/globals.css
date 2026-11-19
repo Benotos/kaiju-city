@@ -558,3 +558,20 @@ h1 em{color:#a9f277;text-shadow:0 0 50px #a9f27724}
 .bottom-bar{margin-top:22px}
 @media(max-width:1000px){.right-rail{grid-template-columns:1fr;grid-template-rows:auto auto auto auto;gap:12px}.feed-header,.feed-subline,.trade-list,.feed-bottom,.test-controls{grid-column:1;grid-row:auto}.feed-subline{margin-top:6px}.trade-list{grid-template-columns:repeat(2,minmax(0,1fr))}.test-controls{align-self:auto}.left-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.scene-wrap{height:65vh;min-height:500px}}
 @media(max-width:600px){.app-shell{padding:0 12px 20px}.hero-strip{padding:38px 0 22px;display:block}h1{font-size:clamp(46px,15vw,74px)}.hero-right{align-items:flex-start;margin-top:20px}.stats-grid{grid-template-columns:repeat(2,1fr)}.stat-card{padding:13px;min-height:75px}.stat-card strong{font-size:27px}.workspace{gap:10px}.city-panel{min-height:0}.scene-wrap{height:58vh;min-height:400px}.scene-overlay-bottom{padding:14px;gap:15px}.scene-overlay-bottom b{font-size:20px}.scene-footer-note{display:none}.right-rail{padding:15px}.trade-list{grid-template-columns:1fr}.left-rail{display:grid;grid-template-columns:1fr}.left-rail>*{grid-column:1!important}.feed-header h2{font-size:34px}.top-actions{gap:5px}.ca-pill{max-width:92px}.launch-button{font-size:7px;padding:0 8px}}
+
+/* KAIJU CITY — BOLDER COLOR / VISIBILITY PASS */
+:root{--bg:#05080d;--bg-soft:#0c1119;--panel:rgba(12,17,26,.94);--panel-raised:#151e2a;--line:rgba(128,174,255,.19);--line-strong:rgba(128,174,255,.34);--text:#f2f6ff;--muted:#9aa9bc;--muted-2:#75869e;--teal:#52e0d0;--teal-bright:#9bfff0;--buy:#a8ff62;--sell:#ff526d;--gold:#ffbd52}
+body{background:radial-gradient(ellipse at 50% 15%,rgba(65,125,255,.13),transparent 38%),radial-gradient(ellipse at 95% 55%,rgba(255,77,131,.08),transparent 35%),#05080d}
+.topbar{background:rgba(5,8,13,.92)}
+h1,.feed-header h2,.stat-card strong,.kaiju-name{font-weight:950!important;letter-spacing:-.035em}
+h1 em{color:#a8ff62;text-shadow:0 0 40px #a8ff6233}
+.eyebrow,.stream-status,.stat-icon,.finder-title,.panel-live,.nav-dot{color:#a8ff62}
+.launch-button{background:linear-gradient(135deg,#a8ff62,#65d9ff);color:#08110a;border-color:#a8ff62;box-shadow:0 0 28px #a8ff6225;font-weight:950}
+.stat-card{background:linear-gradient(135deg,#121b29,#090d14);border-color:#8bb7ff28}.stat-card strong{font-weight:900}.stat-card:nth-child(2){box-shadow:inset 0 2px #65d9ff55}.stat-card:nth-child(3){box-shadow:inset 0 2px #a8ff6255}.stat-card:nth-child(4){box-shadow:inset 0 2px #ff526d55}
+.scene-wrap{background:radial-gradient(ellipse at 50% 45%,#1e4e8c55,transparent 58%),linear-gradient(180deg,#101d31,#080b12)!important}
+.scene-wrap canvas{z-index:2!important}
+.scene-wrap::after{opacity:.14!important;background-image:linear-gradient(#70baff1c 1px,transparent 1px),linear-gradient(90deg,#70baff1c 1px,transparent 1px)!important}
+.scene-overlay{z-index:5!important;color:#b8c9df}.scene-overlay-top{z-index:5!important}.focus-chip{z-index:6!important}
+.trade-buy .trade-icon,.trade-buy .trade-main b{color:#a8ff62!important}.trade-sell .trade-icon,.trade-sell .trade-main b{color:#ff526d!important}.trade-row{background:linear-gradient(90deg,#101725,#090c12);border-color:#243146}.trade-main b{font-weight:900!important}.trade-line span{font-weight:900!important;color:#f5f8ff!important}
+.panel-heading,.stat-head,.scene-footer,.feed-subline,.trade-source,.wallet-link,.scene-coords,.scene-overlay,.kaiju-power,.kaiju-card-top,.finder-foot{font-weight:700!important}
+@media(max-width:600px){h1{font-size:clamp(48px,15vw,76px)!important}}
