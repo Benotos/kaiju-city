@@ -281,12 +281,22 @@ export default function CityScene({
         })}
         <div className="city-fallback-haze" />
       </div>
-    <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [16, 14, 19], fov: 50, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
-      <AdaptiveDpr pixelated={false} />
-      <color attach="background" args={["#071218"]} />
-      <fog attach="fog" args={["#071218", 25, 58]} />
-      <ambientLight intensity={1.05} />
-      <hemisphereLight args={["#c5eaff", "#24364d", 0.72]} />
-      <directionalLight position={[9, 18, 8  );
-  </div>
+      <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [16, 14, 19], fov: 50, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
+        <AdaptiveDpr pixelated={false} />
+        <color attach="background" args={["#071218"]} />
+        <fog attach="fog" args={["#071218", 25, 58]} />
+        <ambientLight intensity={1.05} />
+        <hemisphereLight args={["#c5eaff", "#24364d", 0.72]} />
+        <directionalLight position={[9, 18, 8]} intensity={2.8} castShadow shadow-mapSize={[768, 768]} />
+        <pointLight position={[-12, 8, -10]} intensity={80} color="#55aeb0" distance={35} />
+        <pointLight position={[10, 5, 12]} intensity={70} color="#d0a76a" distance={24} />
+        <Stars radius={70} depth={36} count={900} factor={1.7} saturation={0.28} fade speed={0.16} />
+        <CityFloor />
+        {buildings.map((building) => <Building key={building.id} building={building} focused={building.wallet === focusedWallet} />)}
+        <Kaiju target={stompTarget} pulse={stompPulse} strength={stompStrength} />
+        {focused && <Float speed={2} rotationIntensity={0.15} floatIntensity={0.4}><mesh position={[focused.x, focused.height + 1.45, focused.z]}><sphereGeometry args={[0.13, 12, 12]} /><meshBasicMaterial color="#d6b579" /></mesh></Float>}
+        <OrbitControls makeDefault target={[0, 2, 0]} enablePan enableDamping dampingFactor={0.09} rotateSpeed={0.68} zoomSpeed={0.78} minDistance={8} maxDistance={36} maxPolarAngle={Math.PI / 2.08} minPolarAngle={0.32} />
+      </Canvas>
+    </div>
+  );
 }
