@@ -580,3 +580,10 @@ h1 em{color:#a8ff62;text-shadow:0 0 40px #a8ff6233}
 .city-render-root canvas{position:absolute!important;inset:0;width:100%!important;height:100%!important;z-index:2!important;display:block}
 .scene-wrap canvas{z-index:2!important}
 @media(max-width:640px){.city-render-root{min-height:520px}.scene-wrap canvas{width:100%!important;height:100%!important}}
+
+/* Always visible social and contract buttons */
+.social-x{display:flex!important;align-items:center;justify-content:center;width:36px;height:36px;font-size:19px;font-weight:900;color:#f3f6fb;border:1px solid #ffffff24;background:#101722;border-radius:7px;transition:all .18s}
+.social-x:hover{color:#a8ff62;border-color:#a8ff62;box-shadow:0 0 18px #a8ff6222}
+.ca-pill{display:flex!important;align-items:center;gap:7px}
+.ca-label{font-weight:900;color:#a8ff62;letter-spacing:.12em}
+@media(max-width:640px){.social-x{width:32px;height:32px;font-size:17px}.ca-label{font-size:9px}}
