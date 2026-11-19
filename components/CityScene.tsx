@@ -8,6 +8,7 @@ import type { CityBuilding } from "@/lib/types";
 
 function Building({ building, focused }: { building: CityBuilding; focused: boolean }) {
   const body = useRef<THREE.Mesh>(null);
+  const variant = useMemo(() => { let hash = 0; for (const char of building.id) hash = (hash * 31 + char.charCodeAt(0)) | 0; return Math.abs(hash) % 5; }, [building.id]);
   const roof = useRef<THREE.Group>(null);
   const windows = useRef<THREE.InstancedMesh>(null);
   const currentHeight = useRef(building.height);
@@ -98,11 +99,21 @@ function Building({ building, focused }: { building: CityBuilding; focused: bool
         <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.025 : 0.24} metalness={0.5} roughness={0.34} />
       </mesh>
       <instancedMesh ref={windows} args={[windowGeometry, windowMaterial, 28]} frustumCulled={false} />
+      {variant === 0 && <group>{[-0.58, 0.58].map((x) => <mesh key={x} position={[x, 0.5, 0.68]}><boxGeometry args={[0.08, 1, 0.08]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.2} /></mesh>)}</group>}
+      {variant === 1 && [0.25, 0.5, 0.75].map((y) => <mesh key={y} position={[0, y, 0]}><boxGeometry args={[1.55, 0.045, 1.48]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.18} /></mesh>)}
+      {variant === 2 && <mesh position={[0, 0.5, 0]}><boxGeometry args={[0.22, 1, 1.42]} /><meshStandardMaterial color="#243640" metalness={0.5} /></mesh>}
+      {variant === 3 && <group>{[-0.5, 0, 0.5].map((x) => <mesh key={x} position={[x, 0.5, 0.68]}><boxGeometry args={[0.08, 1, 0.06]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.28} /></mesh>)}</group>}
+      {variant === 4 && [0.25, 0.5, 0.75].map((y) => <mesh key={y} position={[0, y, 0]}><boxGeometry args={[1.5, 0.06, 1.4]} /><meshStandardMaterial color="#253944" metalness={0.7} /></mesh>)}
       <group ref={roof}>
         <mesh position={[0, 0.03, 0]}>
           <boxGeometry args={[1.08, 0.12, 1.04]} />
           <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.42} metalness={0.42} roughness={0.34} />
         </mesh>
+        {variant === 0 && <mesh position={[0, 0.28, 0]}><cylinderGeometry args={[0.28, 0.42, 0.5, 6]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.32} metalness={0.4} /></mesh>}
+        {variant === 1 && <group position={[0, 0.22, 0]}><mesh><boxGeometry args={[0.82, 0.28, 0.82]} /><meshStandardMaterial color="#1d3038" metalness={0.7} /></mesh><mesh position={[0, 0.25, 0]}><boxGeometry args={[0.55, 0.2, 0.55]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.6} /></mesh></group>}
+        {variant === 2 && <group>{[-0.42, 0.42].map((x) => <mesh key={x} position={[x, 0.24, 0]}><cylinderGeometry args={[0.08, 0.08, 0.5, 8]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.45} /></mesh>)}</group>}
+        {variant === 3 && <mesh position={[0, 0.3, 0]}><coneGeometry args={[0.48, 0.65, 4]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.3} metalness={0.5} /></mesh>}
+        {variant === 4 && <group position={[0, 0.2, 0]}><mesh><boxGeometry args={[1.12, 0.18, 0.3]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.35} /></mesh><mesh rotation={[0, Math.PI / 4, 0]} position={[0, 0.2, 0]}><boxGeometry args={[0.7, 0.12, 0.7]} /><meshStandardMaterial color="#263b45" metalness={0.6} /></mesh></group>}
         <mesh position={[0, 0.22, 0]}>
           <cylinderGeometry args={[0.08, 0.08, 0.27, 8]} />
           <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.78} />
@@ -140,7 +151,6 @@ function Kaiju({ target, pulse, strength }: { target: { x: number; z: number } |
   const targetPos = useRef(new THREE.Vector3(0, 0, 0));
   const fromPos = useRef(new THREE.Vector3(0, 0, 0));
   const stompAge = useRef(99);
-  const previousPulseParticle = useRef(pulse);
   const debris = useRef<THREE.InstancedMesh>(null);
   const fire = useRef<THREE.InstancedMesh>(null);
   const debrisDummy = useMemo(() => new THREE.Object3D(), []);
@@ -310,7 +320,8 @@ function CityFloor() {
 function CameraFlight({ focus }: { focus: { x: number; z: number } | null }) {
   const { camera, controls } = useThree();
   const target = useRef(new THREE.Vector3(0, 1.2, 0));
-  const cameraTarget = useRef(new THREE.Vector3(15, 13, 18));\n  const shake = useRef(0);\n  const previousFocus = useRef<{x:number;z:number}|null>(null);
+  const cameraTarget = useRef(new THREE.Vector3(15, 13, 18));
+  const flightActive = useRef(false);
   useEffect(() => {
     if (focus) {
       target.current.set(focus.x, 1.6, focus.z);
@@ -319,18 +330,21 @@ function CameraFlight({ focus }: { focus: { x: number; z: number } | null }) {
       target.current.set(0, 1.2, 0);
       cameraTarget.current.set(15, 13, 18);
     }
+    flightActive.current = true;
   }, [focus]);
   useFrame((_, delta) => {
-    camera.position.lerp(cameraTarget.current, 1 - Math.exp(-delta * 1.85));
     const orbit = controls as unknown as { target?: THREE.Vector3; update?: () => void };
+    if (!flightActive.current) return;
+    const alpha = 1 - Math.exp(-delta * 2.1);
+    camera.position.lerp(cameraTarget.current, alpha);
     if (orbit?.target) {
-      orbit.target.lerp(target.current, 1 - Math.exp(-delta * 2.35));
+      orbit.target.lerp(target.current, 1 - Math.exp(-delta * 2.5));
       orbit.update?.();
     }
+    if (camera.position.distanceTo(cameraTarget.current) < 0.12 && (!orbit?.target || orbit.target.distanceTo(target.current) < 0.08)) flightActive.current = false;
   });
   return null;
 }
-
 export default function CityScene({
   buildings,
   focusedWallet,
