@@ -7,138 +7,50 @@ import * as THREE from "three";
 import type { CityBuilding } from "@/lib/types";
 
 function Building({ building, focused }: { building: CityBuilding; focused: boolean }) {
-  const body = useRef<THREE.Mesh>(null);
-  const variant = useMemo(() => { let hash = 0; for (const char of building.id) hash = (hash * 31 + char.charCodeAt(0)) | 0; return Math.abs(hash) % 5; }, [building.id]);
-  const roof = useRef<THREE.Group>(null);
-  const windows = useRef<THREE.InstancedMesh>(null);
   const currentHeight = useRef(building.height);
   const targetHeight = useRef(building.targetHeight);
-  const windowGeometry = useMemo(() => new THREE.BoxGeometry(0.2, 0.19, 0.025), []);
-  const windowMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-    color: building.color,
-    emissive: building.color,
-    emissiveIntensity: 1.25,
-    metalness: 0.2,
-    roughness: 0.36,
-    transparent: true,
-    opacity: 0.82,
-  }), [building.color]);
-
-  useEffect(() => {
-    targetHeight.current = building.targetHeight;
-  }, [building.targetHeight]);
-
-  useEffect(() => {
-    windowMaterial.color.set(building.isFlattened ? "#26343a" : building.color);
-    windowMaterial.emissive.set(building.isFlattened ? "#10181c" : building.color);
-    windowMaterial.emissiveIntensity = building.isFlattened ? 0.08 : 1.25;
-    windowMaterial.opacity = building.isFlattened ? 0.25 : 1;
-  }, [building.color, building.isFlattened, windowMaterial]);
-
-  // One instanced draw call replaces 28 individual window meshes per tower.
-  useEffect(() => {
-    const instance = windows.current;
-    if (!instance) return;
-    const transform = new THREE.Object3D();
-    let index = 0;
-    for (let row = 0; row < 7; row += 1) {
-      const y = (row - 3) * 0.13;
-      for (const x of [-0.37, 0.37]) {
-        transform.position.set(x, y, 0.677);
-        transform.rotation.set(0, 0, 0);
-        transform.scale.set(1, 1, 1);
-        transform.updateMatrix();
-        instance.setMatrixAt(index++, transform.matrix);
-      }
-      for (const z of [-0.36, 0.36]) {
-        transform.position.set(0.722, y, z);
-        transform.rotation.set(0, Math.PI / 2, 0);
-        transform.scale.set(1, 1, 1);
-        transform.updateMatrix();
-        instance.setMatrixAt(index++, transform.matrix);
-      }
-    }
-    instance.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    instance.instanceMatrix.needsUpdate = true;
-  }, []);
-
-  useFrame((state, delta) => {
-    currentHeight.current = THREE.MathUtils.damp(currentHeight.current, targetHeight.current, building.isFlattened ? 5.5 : 4.5, delta);
-    const height = Math.max(0.11, currentHeight.current);
-    if (body.current) {
-      body.current.scale.y = height;
-      body.current.position.y = height / 2;
-      if (focused) {
-        const pulse = 1 + Math.sin(state.clock.elapsedTime * 3.2) * 0.018;
-        body.current.scale.x = pulse;
-        body.current.scale.z = pulse;
-      } else {
-        body.current.scale.x = 1;
-        body.current.scale.z = 1;
-      }
-    }
-    if (roof.current) roof.current.position.y = height + 0.12;
-    if (windows.current) {
-      windows.current.position.y = height / 2;
-      windows.current.scale.y = height;
+  const group = useRef<THREE.Group>(null);
+  useEffect(() => { targetHeight.current = building.targetHeight; }, [building.targetHeight]);
+  useFrame((_, delta) => {
+    const h = THREE.MathUtils.damp(currentHeight.current, targetHeight.current, 4.5, delta);
+    currentHeight.current = h;
+    if (group.current) {
+      group.current.scale.y = Math.max(0.15, h);
+      group.current.position.y = h / 2;
     }
   });
-
+  const hash = building.id.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const shape = hash % 4;
+  const baseColor = building.isFlattened ? "#38424b" : "#273e55";
   return (
     <group position={[building.x, 0, building.z]}>
-      <mesh ref={body} castShadow receiveShadow>
-        <boxGeometry args={[1.42, 1, 1.34]} />
-        <meshStandardMaterial
-          color={building.isFlattened ? "#303943" : "#263747"}
-          metalness={0.48}
-          roughness={0.4}
-        />
-      </mesh>
-      <mesh position={[0, 0.045, 0]}>
-        <boxGeometry args={[1.52, 0.09, 1.43]} />
-        <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.025 : 0.24} metalness={0.5} roughness={0.34} />
-      </mesh>
-      <instancedMesh ref={windows} args={[windowGeometry, windowMaterial, 28]} frustumCulled={false} />
-      {variant === 0 && <group>{[-0.58, 0.58].map((x) => <mesh key={x} position={[x, 0.5, 0.68]}><boxGeometry args={[0.08, 1, 0.08]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.2} /></mesh>)}</group>}
-      {variant === 1 && [0.25, 0.5, 0.75].map((y) => <mesh key={y} position={[0, y, 0]}><boxGeometry args={[1.55, 0.045, 1.48]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.18} /></mesh>)}
-      {variant === 2 && <mesh position={[0, 0.5, 0]}><boxGeometry args={[0.22, 1, 1.42]} /><meshStandardMaterial color="#243640" metalness={0.5} /></mesh>}
-      {variant === 3 && <group>{[-0.5, 0, 0.5].map((x) => <mesh key={x} position={[x, 0.5, 0.68]}><boxGeometry args={[0.08, 1, 0.06]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.28} /></mesh>)}</group>}
-      {variant === 4 && [0.25, 0.5, 0.75].map((y) => <mesh key={y} position={[0, y, 0]}><boxGeometry args={[1.5, 0.06, 1.4]} /><meshStandardMaterial color="#253944" metalness={0.7} /></mesh>)}
-      <group ref={roof}>
-        <mesh position={[0, 0.03, 0]}>
-          <boxGeometry args={[1.08, 0.12, 1.04]} />
-          <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.42} metalness={0.42} roughness={0.34} />
+      <group ref={group}>
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[1.55, 1, 1.5]} />
+          <meshStandardMaterial color={baseColor} roughness={0.34} metalness={0.42} emissive={building.isFlattened ? "#111820" : building.color} emissiveIntensity={building.isFlattened ? 0.05 : 0.28} />
         </mesh>
-        {variant === 0 && <mesh position={[0, 0.28, 0]}><cylinderGeometry args={[0.28, 0.42, 0.5, 6]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.32} metalness={0.4} /></mesh>}
-        {variant === 1 && <group position={[0, 0.22, 0]}><mesh><boxGeometry args={[0.82, 0.28, 0.82]} /><meshStandardMaterial color="#1d3038" metalness={0.7} /></mesh><mesh position={[0, 0.25, 0]}><boxGeometry args={[0.55, 0.2, 0.55]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.6} /></mesh></group>}
-        {variant === 2 && <group>{[-0.42, 0.42].map((x) => <mesh key={x} position={[x, 0.24, 0]}><cylinderGeometry args={[0.08, 0.08, 0.5, 8]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.45} /></mesh>)}</group>}
-        {variant === 3 && <mesh position={[0, 0.3, 0]}><coneGeometry args={[0.48, 0.65, 4]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.3} metalness={0.5} /></mesh>}
-        {variant === 4 && <group position={[0, 0.2, 0]}><mesh><boxGeometry args={[1.12, 0.18, 0.3]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.35} /></mesh><mesh rotation={[0, Math.PI / 4, 0]} position={[0, 0.2, 0]}><boxGeometry args={[0.7, 0.12, 0.7]} /><meshStandardMaterial color="#263b45" metalness={0.6} /></mesh></group>}
-        <mesh position={[0, 0.22, 0]}>
-          <cylinderGeometry args={[0.08, 0.08, 0.27, 8]} />
-          <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.78} />
-        </mesh>
-        {!building.isFlattened && (
-          <Text
-            position={[0, 0.47, 0]}
-            fontSize={0.18}
-            color="#e5f2f2"
-            outlineColor="#081319"
-            outlineWidth={0.02}
-            anchorX="center"
-            anchorY="middle"
-            maxWidth={1.8}
-          >
-            {building.wallet.slice(0, 9)}
-          </Text>
-        )}
+        {Array.from({ length: 5 }, (_, i) => (
+          <mesh key={i} position={[0, (i - 2) * 0.17, 0.762]}>
+            <boxGeometry args={[1.2, 0.045, 0.025]} />
+            <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.05 : 1.5} />
+          </mesh>
+        ))}
+        {Array.from({ length: 5 }, (_, i) => (
+          <mesh key={i} position={[0.79, (i - 2) * 0.17, 0]}>
+            <boxGeometry args={[0.025, 0.045, 1.2]} />
+            <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.05 : 1.5} />
+          </mesh>
+        ))}
       </group>
-      {focused && (
-        <mesh position={[0, 0.08, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.08, 1.22, 48]} />
-          <meshBasicMaterial color="#74d8cb" transparent opacity={0.9} side={THREE.DoubleSide} />
-        </mesh>
-      )}
+      <mesh position={[0, building.height + 0.12, 0]} castShadow>
+        <boxGeometry args={[1.75, 0.14, 1.7]} />
+        <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={focused ? 1.5 : 0.65} metalness={0.4} />
+      </mesh>
+      {shape === 0 && <mesh position={[building.x, building.height + 0.42, building.z]}><coneGeometry args={[0.45, 0.5, 5]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.6} /></mesh>}
+      {shape === 1 && <mesh position={[0, building.height + 0.35, 0]}><boxGeometry args={[0.8, 0.35, 0.8]} /><meshStandardMaterial color="#b4e9ff" emissive={building.color} emissiveIntensity={0.7} /></mesh>}
+      {shape === 2 && <mesh position={[0, building.height + 0.42, 0]}><cylinderGeometry args={[0.12, 0.12, 0.65, 8]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.9} /></mesh>}
+      {shape === 3 && <mesh position={[0, building.height + 0.35, 0]}><coneGeometry args={[0.5, 0.55, 4]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.65} /></mesh>}
+      {focused && <mesh position={[0, 0.06, 0]} rotation={[-Math.PI/2,0,0]}><ringGeometry args={[1.05,1.25,40]} /><meshBasicMaterial color="#a8ff62" side={THREE.DoubleSide} /></mesh>}
     </group>
   );
 }
