@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";\nimport type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { AdaptiveDpr, Float, OrbitControls, Stars, Text } from "@react-three/drei";
 import * as THREE from "three";
@@ -280,7 +281,6 @@ export default function CityScene({
         })}
         <div className="city-fallback-haze" />
       </div>
-  return (
     <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [16, 14, 19], fov: 50, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
       <AdaptiveDpr pixelated={false} />
       <color attach="background" args={["#071218"]} />
