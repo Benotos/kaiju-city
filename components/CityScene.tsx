@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import type { CSSProperties } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { AdaptiveDpr, Float, OrbitControls, Stars, Text } from "@react-three/drei";
 import * as THREE from "three";
@@ -262,25 +261,6 @@ export default function CityScene({
   const focus = useMemo(() => focused ? { x: focused.x, z: focused.z } : null, [focused?.x, focused?.z]);
   return (
     <div className="city-render-root">
-      <div className="city-visual-fallback" aria-label="City skyline visualization">
-        <div className="city-fallback-ground" />
-        {buildings.map((building, index) => {
-          const left = 10 + ((index % 4) * 20);
-          const depth = Math.floor(index / 4);
-          const height = building.isFlattened ? 8 : 18 + Math.min(44, building.height * 5.2);
-          return (
-            <div key={building.id} className={building.isFlattened ? "city-fallback-tower tower-destroyed" : "city-fallback-tower"} style={{ left: left + "%", bottom: (13 + depth * 10) + "%", height: height + "%", "--tower-color": building.color } as CSSProperties}>
-              <div className="tower-roof" />
-              <div className="tower-face tower-face-front">
-                <div className="tower-windows">{Array.from({length: 18},(_,n)=><i key={n}/>)}</div>
-              </div>
-              <div className="tower-face tower-face-side" />
-              <div className="tower-glow" />
-            </div>
-          );
-        })}
-        <div className="city-fallback-haze" />
-      </div>
       <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [16, 14, 19], fov: 50, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
         <AdaptiveDpr pixelated={false} />
         <color attach="background" args={["#071218"]} />
