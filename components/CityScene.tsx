@@ -7,50 +7,37 @@ import * as THREE from "three";
 import type { CityBuilding } from "@/lib/types";
 
 function Building({ building, focused }: { building: CityBuilding; focused: boolean }) {
-  const currentHeight = useRef(building.height);
-  const targetHeight = useRef(building.targetHeight);
-  const group = useRef<THREE.Group>(null);
-  useEffect(() => { targetHeight.current = building.targetHeight; }, [building.targetHeight]);
-  useFrame((_, delta) => {
-    const h = THREE.MathUtils.damp(currentHeight.current, targetHeight.current, 4.5, delta);
-    currentHeight.current = h;
-    if (group.current) {
-      group.current.scale.y = Math.max(0.15, h);
-      group.current.position.y = h / 2;
-    }
-  });
+  const h = building.isFlattened ? 0.18 : Math.max(2.5, building.height);
   const hash = building.id.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  const shape = hash % 4;
-  const baseColor = building.isFlattened ? "#38424b" : "#273e55";
+  const style = hash % 4;
+  const towerColor = building.isFlattened ? "#47515b" : "#263f5a";
   return (
     <group position={[building.x, 0, building.z]}>
-      <group ref={group}>
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[1.55, 1, 1.5]} />
-          <meshStandardMaterial color={baseColor} roughness={0.34} metalness={0.42} emissive={building.isFlattened ? "#111820" : building.color} emissiveIntensity={building.isFlattened ? 0.05 : 0.28} />
-        </mesh>
-        {Array.from({ length: 5 }, (_, i) => (
-          <mesh key={i} position={[0, (i - 2) * 0.17, 0.762]}>
-            <boxGeometry args={[1.2, 0.045, 0.025]} />
-            <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.05 : 1.5} />
-          </mesh>
-        ))}
-        {Array.from({ length: 5 }, (_, i) => (
-          <mesh key={i} position={[0.79, (i - 2) * 0.17, 0]}>
-            <boxGeometry args={[0.025, 0.045, 1.2]} />
-            <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.05 : 1.5} />
-          </mesh>
-        ))}
-      </group>
-      <mesh position={[0, building.height + 0.12, 0]} castShadow>
-        <boxGeometry args={[1.75, 0.14, 1.7]} />
-        <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={focused ? 1.5 : 0.65} metalness={0.4} />
+      <mesh position={[0, h / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.8, h, 1.8]} />
+        <meshStandardMaterial color={towerColor} roughness={0.3} metalness={0.5} emissive={building.isFlattened ? "#151c24" : building.color} emissiveIntensity={building.isFlattened ? 0.08 : 0.25} />
       </mesh>
-      {shape === 0 && <mesh position={[building.x, building.height + 0.42, building.z]}><coneGeometry args={[0.45, 0.5, 5]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.6} /></mesh>}
-      {shape === 1 && <mesh position={[0, building.height + 0.35, 0]}><boxGeometry args={[0.8, 0.35, 0.8]} /><meshStandardMaterial color="#b4e9ff" emissive={building.color} emissiveIntensity={0.7} /></mesh>}
-      {shape === 2 && <mesh position={[0, building.height + 0.42, 0]}><cylinderGeometry args={[0.12, 0.12, 0.65, 8]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.9} /></mesh>}
-      {shape === 3 && <mesh position={[0, building.height + 0.35, 0]}><coneGeometry args={[0.5, 0.55, 4]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.65} /></mesh>}
-      {focused && <mesh position={[0, 0.06, 0]} rotation={[-Math.PI/2,0,0]}><ringGeometry args={[1.05,1.25,40]} /><meshBasicMaterial color="#a8ff62" side={THREE.DoubleSide} /></mesh>}
+      {[0,1,2,3,4,5].map((n) => (
+        <mesh key={n} position={[0, 0.55 + n * (h / 7), 0.91]}>
+          <boxGeometry args={[1.48, 0.08, 0.035]} />
+          <meshBasicMaterial color={building.isFlattened ? "#4c5963" : building.color} />
+        </mesh>
+      ))}
+      {[0,1,2,3,4,5].map((n) => (
+        <mesh key={n} position={[0.91, 0.55 + n * (h / 7), 0]} rotation={[0, Math.PI/2, 0]}>
+          <boxGeometry args={[1.48, 0.08, 0.035]} />
+          <meshBasicMaterial color={building.isFlattened ? "#4c5963" : building.color} />
+        </mesh>
+      ))}
+      <mesh position={[0, h + 0.08, 0]} castShadow>
+        <boxGeometry args={[2.05, 0.16, 2.05]} />
+        <meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={building.isFlattened ? 0.08 : 0.9} />
+      </mesh>
+      {style === 0 && <mesh position={[0,h+0.4,0]}><coneGeometry args={[0.5,0.55,5]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.7} /></mesh>}
+      {style === 1 && <mesh position={[0,h+0.32,0]}><boxGeometry args={[0.9,0.48,0.9]} /><meshStandardMaterial color="#8bd9ff" emissive={building.color} emissiveIntensity={0.6} /></mesh>}
+      {style === 2 && <mesh position={[0,h+0.35,0]}><cylinderGeometry args={[0.16,0.16,0.7,8]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.8} /></mesh>}
+      {style === 3 && <mesh position={[0,h+0.36,0]}><coneGeometry args={[0.55,0.6,4]} /><meshStandardMaterial color={building.color} emissive={building.color} emissiveIntensity={0.8} /></mesh>}
+      {focused && <mesh position={[0,0.04,0]} rotation={[-Math.PI/2,0,0]}><ringGeometry args={[1.25,1.45,48]} /><meshBasicMaterial color="#a8ff62" side={THREE.DoubleSide} /></mesh>}
     </group>
   );
 }
