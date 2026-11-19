@@ -265,9 +265,9 @@ export default function Home() {
         <div className="brand-lockup"><AppLogo /><div className="brand-type"><strong>KAIJU<span>/</span>CITY</strong><small>THE MARKET IS ALIVE</small></div></div>
         <nav className="topnav" aria-label="Main navigation"><a className={activeSection === "city" ? "nav-active" : ""} href="#city" aria-current={activeSection === "city" ? "location" : undefined}>CITY <span className="nav-dot" /></a><a className={activeSection === "feed" ? "nav-active" : ""} href="#feed" aria-current={activeSection === "feed" ? "location" : undefined}>TRADE FEED</a><a className={activeSection === "lore" ? "nav-active" : ""} href="#lore" aria-current={activeSection === "lore" ? "location" : undefined}>LORE</a></nav>
         <div className="top-actions">
-          {process.env.NEXT_PUBLIC_X_URL && <a className="social-pill" href={process.env.NEXT_PUBLIC_X_URL} target="_blank" rel="noreferrer" aria-label="Open X community">𝕏</a>}
+          <a className="social-pill social-x" href={process.env.NEXT_PUBLIC_X_URL || "https://x.com"} target="_blank" rel="noreferrer" aria-label="Open X">𝕏</a>
           {process.env.NEXT_PUBLIC_TELEGRAM_URL && <a className="social-pill" href={process.env.NEXT_PUBLIC_TELEGRAM_URL} target="_blank" rel="noreferrer" aria-label="Open Telegram"><Send size={13} /></a>}
-          <button className="ca-pill" onClick={copyMint}><span className="ca-dot" />{START_MINT ? `${START_MINT.slice(0, 5)}…${START_MINT.slice(-4)}` : "CA NOT SET"}<Copy size={12} /></button>
+          <button className="ca-pill" onClick={copyMint}><span className="ca-label">CA</span><span className="ca-dot" />{START_MINT ? `${START_MINT.slice(0, 5)}…${START_MINT.slice(-4)}` : "CA NOT SET"}<Copy size={12} /></button>
           <a className="launch-button" href={START_MINT ? `https://pump.fun/coin/${START_MINT}` : "#city"} target={START_MINT ? "_blank" : undefined} rel="noreferrer">{START_MINT ? "TRADE TOKEN" : "LAUNCH SOON"}<ExternalLink size={13} /></a>
         </div>
       </header>
