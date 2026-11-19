@@ -260,7 +260,7 @@ export default function CityScene({
   const focused = useMemo(() => buildings.find((item) => item.wallet === focusedWallet), [buildings, focusedWallet]);
   const focus = useMemo(() => focused ? { x: focused.x, z: focused.z } : null, [focused?.x, focused?.z]);
   return (
-    <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [13, 11, 15], fov: 48, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
+    <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [16, 14, 19], fov: 50, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
       <AdaptiveDpr pixelated={false} />
       <color attach="background" args={["#071218"]} />
       <fog attach="fog" args={["#071218", 25, 58]} />
@@ -283,8 +283,8 @@ export default function CityScene({
           </mesh>
         </Float>
       )}
-      <CameraFlight focus={focus} />
-      <OrbitControls makeDefault enablePan enableDamping dampingFactor={0.09} rotateSpeed={0.68} zoomSpeed={0.78} minDistance={8} maxDistance={36} maxPolarAngle={Math.PI / 2.08} minPolarAngle={0.32} />
+      
+      <OrbitControls makeDefault target={[0, 2, 0]} enablePan enableDamping dampingFactor={0.09} rotateSpeed={0.68} zoomSpeed={0.78} minDistance={8} maxDistance={36} maxPolarAngle={Math.PI / 2.08} minPolarAngle={0.32} />
     </Canvas>
   );
 }
