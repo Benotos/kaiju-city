@@ -17,7 +17,7 @@ function Building({ building, focused }: { building: CityBuilding; focused: bool
   const windowMaterial = useMemo(() => new THREE.MeshStandardMaterial({
     color: building.color,
     emissive: building.color,
-    emissiveIntensity: 0.72,
+    emissiveIntensity: 1.25,
     metalness: 0.2,
     roughness: 0.36,
     transparent: true,
@@ -31,8 +31,8 @@ function Building({ building, focused }: { building: CityBuilding; focused: bool
   useEffect(() => {
     windowMaterial.color.set(building.isFlattened ? "#26343a" : building.color);
     windowMaterial.emissive.set(building.isFlattened ? "#10181c" : building.color);
-    windowMaterial.emissiveIntensity = building.isFlattened ? 0.04 : 0.72;
-    windowMaterial.opacity = building.isFlattened ? 0.12 : 0.82;
+    windowMaterial.emissiveIntensity = building.isFlattened ? 0.08 : 1.25;
+    windowMaterial.opacity = building.isFlattened ? 0.25 : 1;
   }, [building.color, building.isFlattened, windowMaterial]);
 
   // One instanced draw call replaces 28 individual window meshes per tower.
@@ -89,7 +89,7 @@ function Building({ building, focused }: { building: CityBuilding; focused: bool
       <mesh ref={body} castShadow receiveShadow>
         <boxGeometry args={[1.42, 1, 1.34]} />
         <meshStandardMaterial
-          color={building.isFlattened ? "#202a30" : "#111c23"}
+          color={building.isFlattened ? "#303943" : "#263747"}
           metalness={0.48}
           roughness={0.4}
         />
@@ -297,9 +297,9 @@ function CityFloor() {
     <group>
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.11, 0]}>
         <planeGeometry args={[100, 100]} />
-        <meshStandardMaterial color="#09151d" roughness={0.92} />
+        <meshStandardMaterial color="#132b3c" roughness={0.7} />
       </mesh>
-      <gridHelper args={[100, 64, "#1e4146", "#12282f"]} position={[0, -0.09, 0]} />
+      <gridHelper args={[100, 64, "#32647b", "#1c3a4c"]} position={[0, -0.09, 0]} />
       {/* Streets */}
       {[ -8.8, 0, 8.8 ].map((x) => (
         <mesh key={`road-x-${x}`} rotation={[-Math.PI / 2, 0, 0]} position={[x, -0.075, 0]}>
@@ -361,15 +361,15 @@ export default function CityScene({
   const focused = useMemo(() => buildings.find((item) => item.wallet === focusedWallet), [buildings, focusedWallet]);
   const focus = useMemo(() => focused ? { x: focused.x, z: focused.z } : null, [focused?.x, focused?.z]);
   return (
-    <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [15, 13, 18], fov: 42, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
+    <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [13, 11, 15], fov: 48, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
       <AdaptiveDpr pixelated={false} />
       <color attach="background" args={["#071218"]} />
       <fog attach="fog" args={["#071218", 25, 58]} />
-      <ambientLight intensity={0.62} />
-      <hemisphereLight args={["#b5e7e2", "#10212b", 0.34]} />
-      <directionalLight position={[9, 18, 8]} intensity={1.65} castShadow shadow-mapSize={[768, 768]} />
-      <pointLight position={[-12, 8, -10]} intensity={52} color="#55aeb0" distance={35} />
-      <pointLight position={[10, 5, 12]} intensity={34} color="#d0a76a" distance={24} />
+      <ambientLight intensity={1.05} />
+      <hemisphereLight args={["#c5eaff", "#24364d", 0.72]} />
+      <directionalLight position={[9, 18, 8]} intensity={2.8} castShadow shadow-mapSize={[768, 768]} />
+      <pointLight position={[-12, 8, -10]} intensity={80} color="#55aeb0" distance={35} />
+      <pointLight position={[10, 5, 12]} intensity={70} color="#d0a76a" distance={24} />
       <Stars radius={70} depth={36} count={900} factor={1.7} saturation={0.28} fade speed={0.16} />
       <CityFloor />
       {buildings.map((building) => (
