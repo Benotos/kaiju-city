@@ -12,15 +12,15 @@ const SPAN = GRID_BLOCKS * BLOCK_PITCH;
 export function Sky() {
   const geometry = useMemo(() => {
     const geo = new THREE.SphereGeometry(320, 32, 20);
-    const top = new THREE.Color("#05031a");
-    const mid = new THREE.Color("#1a0b4a");
-    const horizon = new THREE.Color("#c42aa8").lerp(new THREE.Color("#2a0f5c"), 0.6);
+    const top = new THREE.Color("#01040b");
+    const mid = new THREE.Color("#04132a");
+    const horizon = new THREE.Color("#0f4c70").lerp(new THREE.Color("#1b6f8f"), 0.35);
     const colors: number[] = [];
     const pos = geo.attributes.position;
     const c = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i) / 320;
-      if (y < 0.02) c.copy(horizon).lerp(new THREE.Color("#07051a"), Math.min(1, -y * 6));
+      if (y < 0.02) c.copy(horizon).lerp(new THREE.Color("#020812"), Math.min(1, -y * 6));
       else if (y < 0.3) c.copy(horizon).lerp(mid, y / 0.3);
       else c.copy(mid).lerp(top, Math.min(1, (y - 0.3) / 0.5));
       colors.push(c.r, c.g, c.b);
@@ -39,13 +39,13 @@ export function Sky() {
 export function Lights() {
   return (
     <>
-      <hemisphereLight args={["#9fb7ff", "#2a1240", 1.25]} />
-      <ambientLight intensity={0.45} color="#6b5cff" />
-      <directionalLight position={[-30, 50, 25]} intensity={2.2} color="#bcd0ff" />
-      <directionalLight position={[35, 18, -30]} intensity={1.3} color="#ff4fd8" />
-      <pointLight position={[0, 16, 0]} intensity={900} distance={60} decay={1.6} color="#22e6ff" />
-      <pointLight position={[-22, 10, 18]} intensity={600} distance={50} decay={1.6} color="#ff2bd6" />
-      <pointLight position={[24, 10, -16]} intensity={600} distance={50} decay={1.6} color="#8b5cff" />
+      <hemisphereLight args={["#a9d8ff", "#06142a", 1.2]} />
+      <ambientLight intensity={0.4} color="#3f6fd6" />
+      <directionalLight position={[-30, 50, 25]} intensity={2.1} color="#cfe4ff" />
+      <directionalLight position={[35, 18, -30]} intensity={1.2} color="#ffb35c" />
+      <pointLight position={[0, 16, 0]} intensity={900} distance={60} decay={1.6} color="#5fd4ff" />
+      <pointLight position={[-22, 10, 18]} intensity={320} distance={45} decay={1.6} color="#ffb547" />
+      <pointLight position={[24, 10, -16]} intensity={600} distance={50} decay={1.6} color="#3f7bff" />
     </>
   );
 }
@@ -87,26 +87,26 @@ export function Ground() {
     <group>
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.02, 0]}>
         <planeGeometry args={[600, 600]} />
-        <meshStandardMaterial color="#0c0a22" roughness={0.85} metalness={0.25} />
+        <meshStandardMaterial color="#040b16" roughness={0.85} metalness={0.25} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.005, 0]}>
         <circleGeometry args={[CITY_RADIUS + 6, 64]} />
-        <meshStandardMaterial color="#17153a" roughness={0.7} metalness={0.35} />
+        <meshStandardMaterial color="#0a1729" roughness={0.7} metalness={0.35} />
       </mesh>
-      <gridHelper args={[240, 120, "#4b2bbd", "#221a5c"]} position={[0, 0, 0]} />
+      <gridHelper args={[240, 120, "#1f5584", "#0d2541"]} position={[0, 0, 0]} />
       <mesh geometry={streets}>
-        <meshStandardMaterial color="#07061a" roughness={0.55} metalness={0.4} />
+        <meshStandardMaterial color="#030812" roughness={0.55} metalness={0.4} />
       </mesh>
       <mesh geometry={lanes}>
-        <meshBasicMaterial color="#ffc94d" toneMapped={false} transparent opacity={0.75} />
+        <meshBasicMaterial color="#ffb547" toneMapped={false} transparent opacity={0.6} />
       </mesh>
       <mesh geometry={edges}>
-        <meshBasicMaterial color="#22e6ff" toneMapped={false} transparent opacity={0.8} />
+        <meshBasicMaterial color="#5fd4ff" toneMapped={false} transparent opacity={0.7} />
       </mesh>
       {/* outer neon boundary */}
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.03, 0]}>
         <ringGeometry args={[CITY_RADIUS + 5.6, CITY_RADIUS + 6, 96]} />
-        <meshBasicMaterial color="#ff2bd6" toneMapped={false} />
+        <meshBasicMaterial color="#5fd4ff" toneMapped={false} transparent opacity={0.85} />
       </mesh>
     </group>
   );
@@ -136,8 +136,8 @@ export function Traffic({ count }: { count: number }) {
   useEffect(() => {
     if (!mesh.current) return;
     const head = new THREE.Color("#e8fbff").multiplyScalar(1.8);
-    const tail = new THREE.Color("#ff2bd6").multiplyScalar(1.6);
-    const fly = new THREE.Color("#22e6ff").multiplyScalar(1.8);
+    const tail = new THREE.Color("#ff4a3d").multiplyScalar(1.6);
+    const fly = new THREE.Color("#ffb547").multiplyScalar(1.6);
     cars.forEach((car, i) => mesh.current!.setColorAt(i, car.y > 1 ? fly : car.dir > 0 ? head : tail));
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
   }, [cars]);
@@ -178,9 +178,9 @@ export function Backdrop({ count }: { count: number }) {
       const tex = getWindowTexture().clone();
       tex.repeat.set(2, 7);
       tex.needsUpdate = true;
-      return new THREE.MeshStandardMaterial({ color: "#16143a", emissive, emissiveMap: tex, emissiveIntensity: 1.6, roughness: 0.6, metalness: 0.4 });
+      return new THREE.MeshStandardMaterial({ color: "#0b1830", emissive, emissiveMap: tex, emissiveIntensity: 1.6, roughness: 0.6, metalness: 0.4 });
     };
-    return [make("#8b5cff"), make("#22e6ff")];
+    return [make("#3f7bff"), make("#5fd4ff")];
   }, []);
   useEffect(() => () => materials.forEach((m) => { m.emissiveMap?.dispose(); m.dispose(); }), [materials]);
 
@@ -226,10 +226,10 @@ export function Atmosphere() {
   const beams = useRef<(THREE.Group | null)[]>([]);
   const halo = useRef<THREE.Group>(null);
   const spots = useMemo(() => [
-    { x: -CITY_RADIUS * 0.8, z: CITY_RADIUS * 0.55, color: "#22e6ff", speed: 0.35, phase: 0 },
-    { x: CITY_RADIUS * 0.85, z: CITY_RADIUS * 0.35, color: "#ff2bd6", speed: -0.28, phase: 2 },
-    { x: CITY_RADIUS * 0.2, z: -CITY_RADIUS * 0.9, color: "#b6ff3b", speed: 0.22, phase: 4 },
-    { x: -CITY_RADIUS * 0.55, z: -CITY_RADIUS * 0.6, color: "#8b5cff", speed: -0.31, phase: 1 },
+    { x: -CITY_RADIUS * 0.8, z: CITY_RADIUS * 0.55, color: "#5fd4ff", speed: 0.35, phase: 0 },
+    { x: CITY_RADIUS * 0.85, z: CITY_RADIUS * 0.35, color: "#d8ecff", speed: -0.28, phase: 2 },
+    { x: CITY_RADIUS * 0.2, z: -CITY_RADIUS * 0.9, color: "#ffb547", speed: 0.22, phase: 4 },
+    { x: -CITY_RADIUS * 0.55, z: -CITY_RADIUS * 0.6, color: "#3f7bff", speed: -0.31, phase: 1 },
   ], []);
   const beamGeo = useMemo(() => {
     const g = new THREE.ConeGeometry(4.5, 70, 24, 1, true);
@@ -265,11 +265,11 @@ export function Atmosphere() {
       <group ref={halo} position={[0, 31, 0]}>
         <mesh rotation-x={Math.PI / 2}>
           <torusGeometry args={[7, 0.09, 6, 80]} />
-          <meshBasicMaterial color="#22e6ff" toneMapped={false} />
+          <meshBasicMaterial color="#5fd4ff" toneMapped={false} />
         </mesh>
         <mesh rotation-x={Math.PI / 2 + 0.25}>
           <torusGeometry args={[8.4, 0.05, 6, 80]} />
-          <meshBasicMaterial color="#ff2bd6" toneMapped={false} />
+          <meshBasicMaterial color="#ffb547" toneMapped={false} />
         </mesh>
       </group>
     </>

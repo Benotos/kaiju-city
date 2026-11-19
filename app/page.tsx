@@ -86,18 +86,18 @@ function KaijuArt() {
     <svg className="kaiju-art-svg" viewBox="0 0 220 150" role="img" aria-label="The kaiju">
       <defs>
         <linearGradient id="kj-skin" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#3b5560" /><stop offset="1" stopColor="#141f28" /></linearGradient>
-        <radialGradient id="kj-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stopColor="#ff2bd6" stopOpacity=".55" /><stop offset="1" stopColor="#ff2bd6" stopOpacity="0" /></radialGradient>
+        <radialGradient id="kj-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stopColor="#ff5a2a" stopOpacity=".35" /><stop offset="1" stopColor="#ff5a2a" stopOpacity="0" /></radialGradient>
       </defs>
       <ellipse cx="110" cy="80" rx="100" ry="70" fill="url(#kj-glow)" />
       <path d="M50 140 C46 112 58 88 80 74 C76 58 82 40 98 32 C112 25 132 30 140 44 C150 46 160 54 160 66 C160 76 152 82 144 82 C150 98 152 118 146 140 Z" fill="url(#kj-skin)" />
       <path d="M146 140 C168 136 190 128 210 112 C196 132 176 144 150 146 Z" fill="#1b2a33" />
       {[[92, 34, 14], [80, 52, 16], [72, 72, 15], [66, 94, 13], [62, 114, 10]].map(([x, y, s], i) => (
-        <path key={i} d={`M${x} ${y} L${x - s} ${y - s * 0.6} L${x - s * 0.2} ${y + s * 0.5} Z`} fill="#ff2bd6" />
+        <path key={i} d={`M${x} ${y} L${x - s} ${y - s * 0.6} L${x - s * 0.2} ${y + s * 0.5} Z`} fill="#ff5a2a" />
       ))}
       <circle cx="140" cy="54" r="4.5" fill="#ff2a2a" />
       <circle cx="140" cy="54" r="9" fill="#ff2a2a" opacity=".25" />
       <path d="M134 70 L158 68 L152 76 Z" fill="#ff8a2a" />
-      <path d="M118 96 C126 100 132 108 132 118" stroke="#22e6ff" strokeWidth="4" fill="none" strokeLinecap="round" opacity=".7" />
+      <path d="M118 96 C126 100 132 108 132 118" stroke="#d9b26f" strokeWidth="4" fill="none" strokeLinecap="round" opacity=".7" />
     </svg>
   );
 }
@@ -312,10 +312,10 @@ export default function Home() {
   const sampleWallet = tallest?.claimed ? tallest.wallet : claimedTowers[0]?.wallet;
 
   return (
-    <main className="app">
+    <div className="site">
       <div className="backdrop-glow" aria-hidden />
-
       <header className="topbar">
+        <div className="topbar-inner">
         <a className="brand" href="#city" aria-label="Kaiju City home">
           <BrandMark />
           <span className="brand-type"><strong>KAIJU<i>/</i>CITY</strong><small>THE MARKET IS ALIVE</small></span>
@@ -337,12 +337,16 @@ export default function Home() {
             {START_MINT ? "BUY THE CITY" : "LAUNCHING SOON"}<ExternalLink size={14} strokeWidth={2.8} />
           </a>
         </div>
+        </div>
       </header>
+
+    <main className="app">
+
 
       <section className="hero">
         <div className="hero-copy">
           <div className="hero-chips"><StatusChip status={feedStatus} /><span className="chain-chip">◎ SOLANA</span></div>
-          <h1>EVERY TRADE <span>LEAVES A MARK.</span></h1>
+          <h1>Every trade <em>leaves a mark.</em></h1>
         </div>
         <p className="hero-sub"><b className="buy-text">Buys build towers.</b> <b className="sell-text">Sells wake the kaiju.</b> Watch the market build and wreck the city in real time.</p>
       </section>
@@ -350,11 +354,12 @@ export default function Home() {
       <section className="console" id="city">
         <div className="stage">
           <CityScene buildings={buildings} attacks={attacks} focusedWallet={focusedWallet} resetToken={resetToken} />
+          <div className="sim-frame" aria-hidden><i /><i /><i /><i /></div>
 
           <div className="hud hud-top">
             <div className="hud-title">
               <span className="live-dot" />
-              <div><b>NEO-TOKYO · SECTOR 07</b><small>{focusedTower ? `TRACKING ${shortWallet(focusedTower.wallet)}` : "DRAG TO ORBIT · PINCH OR SCROLL TO ZOOM"}</small></div>
+              <div><b><span className="sim-tag">SIM</span>NEO-TOKYO · SECTOR 07</b><small>{focusedTower ? `TRACKING ${shortWallet(focusedTower.wallet)}` : "DRAG TO ORBIT · PINCH OR SCROLL TO ZOOM"}</small></div>
             </div>
             <div className="hud-buttons">
               <button className="hud-btn" onClick={resetCamera} title="Show the whole city"><Camera size={16} strokeWidth={2.6} /><span>RESET VIEW</span></button>
@@ -472,5 +477,6 @@ export default function Home() {
 
       {toast && <div className="toast"><Check size={16} strokeWidth={3} />{toast}</div>}
     </main>
+    </div>
   );
 }

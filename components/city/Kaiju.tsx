@@ -47,12 +47,12 @@ export function Kaiju({ attacks, prowlRadius }: { attacks: KaijuAttack[]; prowlR
 
   const skin = useMemo(() => new THREE.MeshStandardMaterial({ color: "#2b3f4c", roughness: 0.68, metalness: 0.25, emissive: "#102638", emissiveIntensity: 1.2 }), []);
   const belly = useMemo(() => new THREE.MeshStandardMaterial({ color: "#5b6a5e", roughness: 0.85 }), []);
-  const spine = useMemo(() => new THREE.MeshStandardMaterial({ color: "#1b0f2e", emissive: "#ff2bd6", emissiveIntensity: 2.5, roughness: 0.4 }), []);
+  const spine = useMemo(() => new THREE.MeshStandardMaterial({ color: "#1b0f2e", emissive: "#ff4a2a", emissiveIntensity: 2.5, roughness: 0.4 }), []);
   const eye = useMemo(() => new THREE.MeshBasicMaterial({ color: "#ff2a2a", toneMapped: false }), []);
   const claw = useMemo(() => new THREE.MeshStandardMaterial({ color: "#d9d2c0", roughness: 0.5 }), []);
   const glow = useMemo(() => new THREE.MeshBasicMaterial({ color: "#ff7a2a", toneMapped: false, transparent: true, opacity: 0 }), []);
-  const beamCoreMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#e6fbff", toneMapped: false, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }), []);
-  const beamGlowMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#22e6ff", toneMapped: false, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }), []);
+  const beamCoreMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#fff1d6", toneMapped: false, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }), []);
+  const beamGlowMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#ff8a3d", toneMapped: false, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }), []);
   useEffect(() => () => [skin, belly, spine, eye, claw, glow, beamCoreMat, beamGlowMat].forEach((m) => m.dispose()), [skin, belly, spine, eye, claw, glow, beamCoreMat, beamGlowMat]);
 
   const mouthWorld = useMemo(() => new THREE.Vector3(), []);
@@ -153,7 +153,7 @@ export function Kaiju({ attacks, prowlRadius }: { attacks: KaijuAttack[]; prowlR
 
     const charge = attack ? Math.max(0, 1 - Math.abs((now - attack.at) / 700)) : 0;
     spine.emissiveIntensity = 2.2 + Math.sin(t * 3) * 0.6 + charge * 6;
-    spine.emissive.set(charge > 0.2 ? "#22e6ff" : "#ff2bd6");
+    spine.emissive.set(charge > 0.2 ? "#ffe2b0" : "#ff4a2a");
     glow.opacity = roar * 0.95;
     if (light.current) light.current.intensity = 260 + charge * 1400;
 
@@ -190,7 +190,7 @@ export function Kaiju({ attacks, prowlRadius }: { attacks: KaijuAttack[]; prowlR
   return (
     <>
       <group ref={root} scale={2.35}>
-        <pointLight ref={light} position={[0, 6, 3.5]} color="#ff2bd6" intensity={140} distance={30} decay={1.5} />
+        <pointLight ref={light} position={[0, 6, 3.5]} color="#ff5a2a" intensity={140} distance={30} decay={1.5} />
         <group ref={body} rotation-x={0.32}>
           {/* torso */}
           <mesh material={skin} position={[0, 3, 0]} scale={[1.35, 1.75, 1.15]}>
@@ -498,7 +498,7 @@ export function ImpactEffects({ attacks }: { attacks: KaijuAttack[] }) {
       <pointLight ref={flashLight} color="#ff7a2a" intensity={0} distance={60} decay={1.7} />
       <instancedMesh ref={debrisMesh} args={[undefined, undefined, DEBRIS]} frustumCulled={false}>
         <boxGeometry args={[1, 0.7, 1]} />
-        <meshStandardMaterial color="#6d6482" roughness={0.9} emissive="#ff5a1f" emissiveIntensity={0.35} />
+        <meshStandardMaterial color="#5f6875" roughness={0.9} emissive="#ff6a2a" emissiveIntensity={0.18} />
       </instancedMesh>
       <instancedMesh ref={sparkMesh} args={[undefined, undefined, SPARKS]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
@@ -506,7 +506,7 @@ export function ImpactEffects({ attacks }: { attacks: KaijuAttack[] }) {
       </instancedMesh>
       <instancedMesh ref={smokeMesh} args={[undefined, undefined, SMOKE]} frustumCulled={false}>
         <sphereGeometry args={[1, 10, 8]} />
-        <meshStandardMaterial color="#5a4a80" emissive="#ff5a1f" emissiveIntensity={0.15} transparent opacity={0.32} depthWrite={false} roughness={1} />
+        <meshStandardMaterial color="#4a5566" emissive="#ff5a1f" emissiveIntensity={0.15} transparent opacity={0.32} depthWrite={false} roughness={1} />
       </instancedMesh>
       {ringMaterials.map((m, i) => (
         <mesh key={i} ref={(el) => { rings.current[i] = el; }} rotation-x={-Math.PI / 2} material={m} visible={false}>

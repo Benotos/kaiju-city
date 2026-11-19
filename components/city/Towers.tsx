@@ -150,7 +150,7 @@ export const Rubble = memo(function Rubble({ building: b }: { building: CityBuil
   useEffect(() => () => geo.dispose(), [geo]);
   const group = useRef<THREE.Group>(null);
   const smoke = useRef<THREE.Group>(null);
-  const smokeMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#5a4a80", emissive: "#ff5a1f", emissiveIntensity: 0.12, transparent: true, opacity: 0.3, depthWrite: false, roughness: 1 }), []);
+  const smokeMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#4a5566", emissive: "#ff5a1f", emissiveIntensity: 0.12, transparent: true, opacity: 0.3, depthWrite: false, roughness: 1 }), []);
   useEffect(() => () => smokeMaterial.dispose(), [smokeMaterial]);
 
   useFrame((state) => {
@@ -214,11 +214,11 @@ export function FocusMarker({ building }: { building: CityBuilding | undefined }
     <group position={[building.x, 0, building.z]}>
       <mesh ref={ring} rotation-x={-Math.PI / 2} position={[0, 0.06, 0]}>
         <ringGeometry args={[r, r + 0.28, 6]} />
-        <meshBasicMaterial color="#b6ff3b" toneMapped={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial color="#ffb547" toneMapped={false} side={THREE.DoubleSide} />
       </mesh>
       <mesh position={[0, 30, 0]}>
         <cylinderGeometry args={[r * 0.7, r * 0.9, 60, 24, 1, true]} />
-        <meshBasicMaterial ref={pillar} color="#b6ff3b" transparent opacity={0.16} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial ref={pillar} color="#ffb547" transparent opacity={0.16} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );

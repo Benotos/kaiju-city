@@ -162,10 +162,10 @@ function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: Scene
 
   return (
     <>
-      <color attach="background" args={["#07051a"]} />
-      <fogExp2 attach="fog" args={["#140a35", lowPower ? 0.0085 : 0.0072]} />
+      <color attach="background" args={["#020812"]} />
+      <fogExp2 attach="fog" args={["#06182c", lowPower ? 0.0085 : 0.0072]} />
       <Sky />
-      <Stars radius={180} depth={60} count={lowPower ? 700 : 1600} factor={4} saturation={0.6} fade speed={0.4} />
+      <Stars radius={180} depth={60} count={lowPower ? 700 : 1600} factor={4} saturation={0} fade speed={0.4} />
       <Lights />
       <ShakeGroup>
         <Ground />

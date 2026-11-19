@@ -18,7 +18,8 @@ export const MAX_TOWERS = 84;
 export const KAIJU_LEAD_MS = 1150;
 export const TOWER_STYLES = 7;
 
-export const NEON = ["#22e6ff", "#ff2bd6", "#b6ff3b", "#8b5cff", "#ffc94d", "#ff6a3d", "#3dffb4", "#5b8cff"];
+/** Simulator palette: ice and electric blues with amber accents. */
+export const NEON = ["#5fd4ff", "#7ea6ff", "#d8ecff", "#3f7bff", "#ffb547", "#43e3d0", "#9d93ff", "#ffd28a"];
 
 export type Slot = { index: number; x: number; z: number; ring: number };
 

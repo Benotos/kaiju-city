@@ -81,7 +81,7 @@ export function getLabelTexture(text: string, color: string) {
   g.arcTo(6, 122, 6, 6, r);
   g.arcTo(6, 6, 506, 6, r);
   g.closePath();
-  g.fillStyle = "rgba(9,6,24,0.88)";
+  g.fillStyle = "rgba(4,12,26,0.88)";
   g.fill();
   g.lineWidth = 7;
   g.strokeStyle = color;
@@ -110,10 +110,10 @@ export function getBodyMaterial(color: string) {
   if (!material) {
     const neon = new THREE.Color(color);
     material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color("#1a2044").lerp(neon, 0.22),
+      color: new THREE.Color("#0f1d33").lerp(neon, 0.2),
       emissive: neon,
       emissiveMap: getWindowTexture(),
-      emissiveIntensity: 2.3,
+      emissiveIntensity: 2.1,
       roughness: 0.42,
       metalness: 0.5,
     });
@@ -136,7 +136,7 @@ let rubbleMaterial: THREE.MeshStandardMaterial | null = null;
 export function getRubbleMaterial() {
   if (!rubbleMaterial) {
     rubbleMaterial = new THREE.MeshStandardMaterial({
-      color: "#3a3346",
+      color: "#2c3340",
       roughness: 0.92,
       metalness: 0.1,
       emissive: "#ff5a1f",
