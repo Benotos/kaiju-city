@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { AdaptiveDpr, Float, OrbitControls, Stars, Text } from "@react-three/drei";
 import * as THREE from "three";
@@ -261,6 +262,18 @@ export default function CityScene({
   const focus = useMemo(() => focused ? { x: focused.x, z: focused.z } : null, [focused?.x, focused?.z]);
   return (
     <div className="city-render-root">
+      <div className="mobile-city" aria-hidden="true">
+        <div className="mobile-city-ground" />
+        {buildings.map((building, index) => {
+          const col = index % 4;
+          const row = Math.floor(index / 4);
+          const height = building.isFlattened ? 8 : Math.min(82, 24 + building.height * 6);
+          return <div key={building.id} className={building.isFlattened ? "mobile-tower destroyed" : "mobile-tower"} style={{ left: (8 + col * 22) + "%", bottom: (12 + row * 12) + "%", height: height + "%", "--tower-lit": building.color } as CSSProperties}>
+            <div className="mobile-tower-roof" />
+            <div className="mobile-tower-windows">{Array.from({length: Math.max(3, Math.floor(height / 8))}, (_, n) => <i key={n}/>)}</div>
+          </div>;
+        })}
+      </div>
       <Canvas frameloop="always" shadows dpr={[1, 1.35]} camera={{ position: [16, 14, 19], fov: 50, near: 0.1, far: 140 }} gl={{ antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false }} performance={{ min: 0.65, max: 1, debounce: 250 }}>
         <AdaptiveDpr pixelated={false} />
         <color attach="background" args={["#071218"]} />
