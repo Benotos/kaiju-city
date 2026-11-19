@@ -513,3 +513,48 @@ h1 em{color:#a9f277;text-shadow:0 0 35px #a9f27720}
 @media(max-width:800px){.hero-strip{padding-top:35px}.workspace{grid-template-columns:1fr}.left-rail{display:grid;grid-template-columns:1fr 1fr;gap:14px}.left-rail>.panel-heading:first-child,.finder-card,.section-rule,.legend-list,.kaiju-card{grid-column:span 2}.kaiju-card{margin-top:0}.city-panel{min-height:520px}.scene-wrap{height:420px;min-height:360px}.right-rail{grid-column:auto;min-height:480px}.topnav{gap:13px}.topnav a{font-size:8px}}
 @media(max-width:540px){.topbar{min-height:62px}.brand-lockup{min-width:auto}.brand-type strong{font-size:13px}.brand-type small{font-size:7px}.topnav{display:none}.top-actions{min-width:0}.ca-pill{max-width:116px;overflow:hidden}.launch-button{padding:0 10px;font-size:7px}.hero-strip{gap:15px;align-items:flex-start}.hero-right{min-width:auto;align-items:flex-end}.hero-chain{display:none}h1{font-size:48px}.hero-strip p{font-size:12px}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stat-card{min-height:108px;padding:13px}.stat-card strong{font-size:28px}.left-rail{display:flex}.right-rail{padding:13px}.scene-wrap{height:370px}.scene-overlay-bottom{gap:14px}.scene-hint{display:none}.scene-footer-note{display:none}.feed-header h2{font-size:34px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+
+/* KAIJU CITY — CINEMATIC REBUILD */
+.app-shell{max-width:none;width:100%;padding:0 clamp(18px,4vw,72px) 30px;background:radial-gradient(ellipse at 50% 20%,#252a1b22,transparent 55%)}
+.topbar{margin:0 calc(clamp(18px,4vw,72px)*-1);padding:0 clamp(18px,4vw,72px);border-bottom-color:#ffffff10;background:#080a0de8}
+.hero-strip{padding:clamp(38px,6vw,88px) 0 30px;align-items:flex-end}
+.eyebrow{color:#a9f277;font-size:10px;letter-spacing:.2em}
+h1{font-size:clamp(56px,8.5vw,132px);line-height:.82;letter-spacing:-.055em;max-width:1200px;text-transform:uppercase}
+h1 em{color:#a9f277;text-shadow:0 0 50px #a9f27724}
+.hero-strip p{max-width:560px;font-size:14px;color:#b2b0a4;letter-spacing:.02em}
+.hero-right{padding-bottom:8px}
+.stream-status{font-size:9px;letter-spacing:.18em}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:0 0 14px;border:1px solid #ffffff13;border-radius:4px;overflow:hidden;background:#080a0dcc}
+.stat-card{min-height:84px;border:0;border-right:1px solid #ffffff10;border-radius:0;background:transparent;box-shadow:none;padding:15px 20px}
+.stat-card:last-child{border-right:0}
+.stat-card::after{display:none}
+.stat-card:hover{transform:none;background:#ffffff04}
+.stat-head{font-size:8px;letter-spacing:.16em;color:#8d8d83}
+.stat-card strong{font-size:34px;margin-top:10px;color:#f4f2e9}
+.stat-card small{font-size:9px;color:#85857b}
+.workspace{display:flex;flex-direction:column;gap:14px;min-height:0}
+.city-panel{order:1;width:100%;min-height:0;border-radius:5px;border-color:#ffffff12;background:#080a0d}
+.city-panel-header{min-height:56px;background:#0b0e11;border-bottom-color:#ffffff10}
+.scene-wrap{height:min(76vh,940px);min-height:620px;background:radial-gradient(ellipse at 50% 48%,#a9f2770e,transparent 55%),linear-gradient(#12171b,#07090b)}
+.scene-wrap::before{background:linear-gradient(180deg,#05070a66,transparent 14%,transparent 75%,#05070a99)}
+.scene-wrap::after{opacity:.11;background-size:46px 46px}
+.scene-overlay-top{font-size:8px;letter-spacing:.18em}
+.scene-overlay-bottom{padding:22px 26px;gap:35px}
+.scene-overlay-bottom b{font-size:26px}
+.scene-hint{font-size:8px;letter-spacing:.15em}
+.scene-footer{background:#090b0d}
+.right-rail{order:2;min-height:0;width:100%;border-radius:5px;background:#090b0d;display:grid;grid-template-columns:260px 1fr;grid-template-rows:auto 1fr auto;gap:0;padding:20px 24px}
+.feed-header{grid-column:1;align-self:start}
+.feed-subline{grid-column:2;align-self:center;margin:0 0 12px;padding:0 0 12px}
+.trade-list{grid-column:2;grid-row:2;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;align-content:start}
+.feed-bottom{grid-column:2;grid-row:3;margin-top:12px}
+.test-controls{grid-column:1;grid-row:2/4;margin:0;padding:14px 0;border:0;align-self:end}
+.feed-header h2{font-size:42px}
+.left-rail{order:3;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;border-radius:5px;background:#090b0d}
+.left-rail>.panel-heading:first-child,.finder-card,.section-rule,.legend-list,.kaiju-card{grid-column:auto}
+.section-rule{display:none}
+.kaiju-card{margin-top:0}
+.bottom-bar{margin-top:22px}
+@media(max-width:1000px){.right-rail{grid-template-columns:1fr;grid-template-rows:auto auto auto auto;gap:12px}.feed-header,.feed-subline,.trade-list,.feed-bottom,.test-controls{grid-column:1;grid-row:auto}.feed-subline{margin-top:6px}.trade-list{grid-template-columns:repeat(2,minmax(0,1fr))}.test-controls{align-self:auto}.left-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.scene-wrap{height:65vh;min-height:500px}}
+@media(max-width:600px){.app-shell{padding:0 12px 20px}.hero-strip{padding:38px 0 22px;display:block}h1{font-size:clamp(46px,15vw,74px)}.hero-right{align-items:flex-start;margin-top:20px}.stats-grid{grid-template-columns:repeat(2,1fr)}.stat-card{padding:13px;min-height:75px}.stat-card strong{font-size:27px}.workspace{gap:10px}.city-panel{min-height:0}.scene-wrap{height:58vh;min-height:400px}.scene-overlay-bottom{padding:14px;gap:15px}.scene-overlay-bottom b{font-size:20px}.scene-footer-note{display:none}.right-rail{padding:15px}.trade-list{grid-template-columns:1fr}.left-rail{display:grid;grid-template-columns:1fr}.left-rail>*{grid-column:1!important}.feed-header h2{font-size:34px}.top-actions{gap:5px}.ca-pill{max-width:92px}.launch-button{font-size:7px;padding:0 8px}}
