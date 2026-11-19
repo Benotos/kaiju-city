@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";\nimport type { CSSProperties } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { AdaptiveDpr, Float, OrbitControls, Stars, Text } from "@react-three/drei";
 import * as THREE from "three";
@@ -268,7 +268,7 @@ export default function CityScene({
           const depth = Math.floor(index / 4);
           const height = building.isFlattened ? 8 : 18 + Math.min(44, building.height * 5.2);
           return (
-            <div key={building.id} className={building.isFlattened ? "city-fallback-tower tower-destroyed" : "city-fallback-tower"} style={{ left: left + "%", bottom: (13 + depth * 10) + "%", height: height + "%", "--tower-color": building.color } as React.CSSProperties}>
+            <div key={building.id} className={building.isFlattened ? "city-fallback-tower tower-destroyed" : "city-fallback-tower"} style={{ left: left + "%", bottom: (13 + depth * 10) + "%", height: height + "%", "--tower-color": building.color } as CSSProperties}>
               <div className="tower-roof" />
               <div className="tower-face tower-face-front">
                 <div className="tower-windows">{Array.from({length: 18},(_,n)=><i key={n}/>)}</div>
