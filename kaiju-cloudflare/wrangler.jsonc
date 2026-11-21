@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "kaiju-city-live-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-21",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RELAY",
+        "class_name": "KaijuRelay"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["KaijuRelay"]
+    }
+  ],
+  "vars": {
+    "KAIJU_MINT": "DUZrwdjEthcJ99ZiRXr31UuqTohoTg7VjTEyfGdBpump"
+  }
+}
