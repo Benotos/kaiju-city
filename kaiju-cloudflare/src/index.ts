@@ -13,6 +13,8 @@ type PumpPortalEvent = Record<string, unknown>;
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 const BASE58_MINT_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const MAX_SEEN_SIGNATURES = 5_000;
+const HEARTBEAT_MS = 25_000;
+const MAX_NOTES = 8;
 
 function finiteNumber(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
@@ -75,17 +77,48 @@ export class KaijuRelay extends DurableObject<Env> {
   private readonly clients = new Set<WebSocket>();
   private readonly seenSignatures = new Set<string>();
   private readonly signatureOrder: string[] = [];
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  // Diagnostics shown on /health so we can see what PumpPortal actually sends.
+  private stats = {
+    connectedAt: 0,
+    messagesReceived: 0,
+    tradesForwarded: 0,
+    otherMintMessages: 0,
+    lastMessageAt: 0,
+    lastTradeAt: 0,
+  };
+  /** Recent non-trade messages from PumpPortal (subscription replies, errors). */
+  private notes: { at: string; text: string }[] = [];
+
+  private mint(): string {
+    return this.env.KAIJU_MINT?.trim() || "";
+  }
+
+  private note(text: string): void {
+    this.notes.unshift({ at: new Date().toISOString(), text: text.slice(0, 300) });
+    if (this.notes.length > MAX_NOTES) this.notes.length = MAX_NOTES;
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
+      const ago = (t: number) => (t ? `${Math.round((Date.now() - t) / 1000)}s ago` : "never");
       return Response.json({
         ok: true,
         status: this.status,
         upstreamConnected: this.upstream?.readyState === WebSocket.OPEN,
-        mint: this.env.KAIJU_MINT || null,
+        mint: this.mint() || null,
         clients: this.openClientCount(),
+        apiKeySet: Boolean(this.env.PUMPPORTAL_API_KEY?.trim()),
+        upstreamConnectedFor: this.stats.connectedAt ? ago(this.stats.connectedAt).replace(" ago", "") : "not connected",
+        messagesReceived: this.stats.messagesReceived,
+        tradesForwarded: this.stats.tradesForwarded,
+        otherMintMessages: this.stats.otherMintMessages,
+        lastMessage: ago(this.stats.lastMessageAt),
+        lastTrade: ago(this.stats.lastTradeAt),
+        pumpPortalNotes: this.notes,
       });
     }
 
@@ -112,6 +145,7 @@ export class KaijuRelay extends DurableObject<Env> {
 
     this.sendToSocket(server, { type: "status", status: this.status });
     this.connectUpstream();
+    this.startHeartbeat();
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -149,7 +183,7 @@ export class KaijuRelay extends DurableObject<Env> {
   private connectUpstream(): void {
     if (this.openClientCount() === 0) return;
 
-    const mint = this.env.KAIJU_MINT?.trim() || "";
+    const mint = this.mint();
     const apiKey = this.env.PUMPPORTAL_API_KEY?.trim() || "";
 
     if (!BASE58_MINT_PATTERN.test(mint) || !apiKey) {
@@ -195,6 +229,8 @@ export class KaijuRelay extends DurableObject<Env> {
       }
 
       this.reconnectAttempt = 0;
+      this.stats.connectedAt = Date.now();
+      this.note("Connected to PumpPortal, subscription sent.");
       console.log(`[kaiju-relay] PumpPortal connected. Subscribing to ${mint}.`);
 
       try {
@@ -224,6 +260,8 @@ export class KaijuRelay extends DurableObject<Env> {
     socket.addEventListener("close", (event: CloseEvent) => {
       if (this.upstream !== socket) return;
       console.warn(`[kaiju-relay] PumpPortal closed (${event.code}): ${event.reason}`);
+      this.note(`PumpPortal closed the connection (code ${event.code})${event.reason ? `: ${event.reason}` : ""}`);
+      this.stats.connectedAt = 0;
       this.upstream = null;
       this.setStatus("offline");
       this.scheduleReconnect();
@@ -238,15 +276,30 @@ export class KaijuRelay extends DurableObject<Env> {
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
       event = parsed as PumpPortalEvent;
     } catch {
-      console.warn("[kaiju-relay] Ignored a non-JSON PumpPortal message.");
+      const text = typeof raw === "string" ? raw : "[binary message]";
+      console.warn("[kaiju-relay] Non-JSON PumpPortal message:", text);
+      this.note(`Non-JSON: ${text}`);
+      return;
+    } finally {
+      this.stats.messagesReceived += 1;
+      this.stats.lastMessageAt = Date.now();
+    }
+
+    // Anything without a trade side is a control message (subscription reply,
+    // error, rate-limit notice). Keep it visible on /health and in the logs.
+    const side = String(event.txType ?? event.side ?? "").toLowerCase();
+    if (side !== "buy" && side !== "sell") {
+      const text = JSON.stringify(event);
+      console.log("[kaiju-relay] PumpPortal message:", text);
+      this.note(text);
       return;
     }
 
     // Never forward trades from another mint, even if the upstream sends one.
-    if (event.mint !== this.env.KAIJU_MINT) return;
-
-    const side = String(event.txType ?? event.side ?? "").toLowerCase();
-    if (side !== "buy" && side !== "sell") return;
+    if (String(event.mint ?? "").trim() !== this.mint()) {
+      this.stats.otherMintMessages += 1;
+      return;
+    }
 
     const traderPublicKey = String(event.traderPublicKey ?? event.wallet ?? "").trim();
     if (!traderPublicKey) return;
@@ -277,6 +330,9 @@ export class KaijuRelay extends DurableObject<Env> {
     const tokenAmount = finiteNumber(event.tokenAmount ?? event.baseAmount) ?? 0;
     const marketCapSol = finiteNumber(event.marketCapSol ?? event.marketCapQuote) ?? 0;
 
+    this.stats.tradesForwarded += 1;
+    this.stats.lastTradeAt = Date.now();
+    console.log(`[kaiju-relay] ${side} ${solAmount} SOL by ${traderPublicKey}`);
     this.broadcast({
       type: "trade",
       id: signature || crypto.randomUUID(),
@@ -304,9 +360,23 @@ export class KaijuRelay extends DurableObject<Env> {
     }, delay);
   }
 
+  /** Keeps idle browser connections alive while the token is quiet. */
+  private startHeartbeat(): void {
+    if (this.heartbeat) return;
+    this.heartbeat = setInterval(() => {
+      if (this.openClientCount() === 0) return;
+      this.broadcast({ type: "ping", t: Date.now() });
+    }, HEARTBEAT_MS);
+  }
+
   private handleClientDisconnect(client: WebSocket): void {
     this.clients.delete(client);
     if (this.openClientCount() > 0) return;
+
+    if (this.heartbeat) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
+    }
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
