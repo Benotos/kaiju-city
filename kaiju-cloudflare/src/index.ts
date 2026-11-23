@@ -1,98 +1,83 @@
 import { DurableObject } from "cloudflare:workers";
+import { type Trade, tradeFromFeedEvent, tradesFromLogs } from "./decode";
 
 interface Env {
   RELAY: DurableObjectNamespace<KaijuRelay>;
   KAIJU_MINT: string;
+  /** Optional: comma list of sources to run. Default: all three. */
+  SOURCES?: string;
+  /** Optional secret: Solana RPC WebSocket URL (e.g. Helius). Defaults to the public RPC. */
+  SOLANA_WS_URL?: string;
+  /** Optional secret: PumpPortal API key (only needed for PumpPortal's PumpSwap data). */
   PUMPPORTAL_API_KEY?: string;
 }
 
 type RelayStatus = "connecting" | "live" | "offline" | "needs-config";
+type SourceName = "chain" | "pumpdev" | "pumpportal";
+type SourceStatus = "idle" | "connecting" | "open" | "retrying";
 
-type PumpPortalEvent = Record<string, unknown>;
-
-const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+const ALL_SOURCES: SourceName[] = ["chain", "pumpdev", "pumpportal"];
+const PUBLIC_SOLANA_WS = "wss://api.mainnet-beta.solana.com";
 const BASE58_MINT_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const MAX_SEEN_SIGNATURES = 5_000;
+const MAX_SEEN = 5_000;
 const HEARTBEAT_MS = 25_000;
-const MAX_NOTES = 8;
+const MAX_NOTES = 12;
+const MAX_BACKOFF_MS = 60_000;
 
-function finiteNumber(value: unknown): number | null {
-  if (typeof value !== "number" && typeof value !== "string") return null;
-  if (String(value).trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+type Source = {
+  name: SourceName;
+  socket: WebSocket | null;
+  status: SourceStatus;
+  attempt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  keepAlive: ReturnType<typeof setInterval> | null;
+  connectedAt: number;
+  messages: number;
+  trades: number;
+  firstToDeliver: number;
+  lastMessageAt: number;
+  lastError: string;
+};
 
-function normalizeTimestamp(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    // PumpPortal timestamps may be seconds or milliseconds.
-    return value < 1_000_000_000_000 ? Math.round(value * 1_000) : Math.round(value);
-  }
-
-  if (typeof value === "string") {
-    const numeric = finiteNumber(value);
-    if (numeric !== null && numeric > 0) {
-      return numeric < 1_000_000_000_000 ? Math.round(numeric * 1_000) : Math.round(numeric);
-    }
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-
-  return Date.now();
+function newSource(name: SourceName): Source {
+  return { name, socket: null, status: "idle", attempt: 0, timer: null, keepAlive: null, connectedAt: 0, messages: 0, trades: 0, firstToDeliver: 0, lastMessageAt: 0, lastError: "" };
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname !== "/" && url.pathname !== "/health") {
-      return new Response("Not found", { status: 404 });
-    }
-
-    if (url.pathname === "/health" && request.method !== "GET") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-
-    const mint = env.KAIJU_MINT || "unconfigured";
-    const id = env.RELAY.idFromName(mint);
+    if (url.pathname !== "/" && url.pathname !== "/health") return new Response("Not found", { status: 404 });
+    if (url.pathname === "/health" && request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    const id = env.RELAY.idFromName(env.KAIJU_MINT?.trim() || "unconfigured");
     return env.RELAY.get(id).fetch(request);
   },
 };
 
 /**
- * One Durable Object instance owns one PumpPortal connection and fans trades
- * out to every connected Kaiju City browser tab.
- *
- * We use the standard DO WebSocket API here rather than hibernation because
- * this object also holds an outbound PumpPortal WebSocket. Standard accepted
- * client sockets keep the DO resident while the site is connected. This is
- * simple and predictable for the initial live-token test, but DO duration
- * usage should be watched in the Cloudflare dashboard.
+ * One Durable Object per mint. It reads the token's trades from several
+ * independent providers at the same time and de-duplicates them by
+ * transaction signature, so the city keeps moving if any one provider fails.
  */
 export class KaijuRelay extends DurableObject<Env> {
-  private upstream: WebSocket | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempt = 0;
-  private status: RelayStatus = "offline";
   private readonly clients = new Set<WebSocket>();
-  private readonly seenSignatures = new Set<string>();
-  private readonly signatureOrder: string[] = [];
+  private readonly sources = new Map<SourceName, Source>();
+  private readonly seen = new Set<string>();
+  private readonly seenOrder: string[] = [];
   private heartbeat: ReturnType<typeof setInterval> | null = null;
-
-  // Diagnostics shown on /health so we can see what PumpPortal actually sends.
-  private stats = {
-    connectedAt: 0,
-    messagesReceived: 0,
-    tradesForwarded: 0,
-    otherMintMessages: 0,
-    lastMessageAt: 0,
-    lastTradeAt: 0,
-  };
-  /** Recent non-trade messages from PumpPortal (subscription replies, errors). */
+  private status: RelayStatus = "offline";
+  private tradesForwarded = 0;
+  private lastTradeAt = 0;
   private notes: { at: string; text: string }[] = [];
 
   private mint(): string {
     return this.env.KAIJU_MINT?.trim() || "";
+  }
+
+  private enabledSources(): SourceName[] {
+    const raw = this.env.SOURCES?.trim();
+    if (!raw) return ALL_SOURCES;
+    const wanted = raw.split(",").map((s) => s.trim().toLowerCase());
+    return ALL_SOURCES.filter((s) => wanted.includes(s));
   }
 
   private note(text: string): void {
@@ -100,66 +85,71 @@ export class KaijuRelay extends DurableObject<Env> {
     if (this.notes.length > MAX_NOTES) this.notes.length = MAX_NOTES;
   }
 
+  /* ----------------------------- browsers ----------------------------- */
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === "/health") {
-      const ago = (t: number) => (t ? `${Math.round((Date.now() - t) / 1000)}s ago` : "never");
-      return Response.json({
-        ok: true,
-        status: this.status,
-        upstreamConnected: this.upstream?.readyState === WebSocket.OPEN,
-        mint: this.mint() || null,
-        clients: this.openClientCount(),
-        apiKeySet: Boolean(this.env.PUMPPORTAL_API_KEY?.trim()),
-        upstreamConnectedFor: this.stats.connectedAt ? ago(this.stats.connectedAt).replace(" ago", "") : "not connected",
-        messagesReceived: this.stats.messagesReceived,
-        tradesForwarded: this.stats.tradesForwarded,
-        otherMintMessages: this.stats.otherMintMessages,
-        lastMessage: ago(this.stats.lastMessageAt),
-        lastTrade: ago(this.stats.lastTradeAt),
-        pumpPortalNotes: this.notes,
-      });
-    }
-
-    if (request.method !== "GET") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-
+    if (url.pathname === "/health") return this.health();
+    if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-      return new Response(
-        "Kaiju City live trade relay. Connect with a WebSocket or open /health.",
-        { status: 426, headers: { "content-type": "text/plain; charset=utf-8" } },
-      );
+      return new Response("Kaiju City live trade relay. Connect with a WebSocket or open /health.", {
+        status: 426,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
     }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-
-    // Standard accept keeps this Durable Object active for the life of the
-    // browser connection, so its outbound PumpPortal socket remains managed.
     server.accept();
     this.clients.add(server);
     server.addEventListener("close", () => this.handleClientDisconnect(server));
     server.addEventListener("error", () => this.handleClientDisconnect(server));
+    this.send(server, { type: "status", status: this.status });
 
-    this.sendToSocket(server, { type: "status", status: this.status });
-    this.connectUpstream();
+    this.startSources();
     this.startHeartbeat();
-
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  private openClientCount(): number {
-    return [...this.clients].filter((socket) => socket.readyState === WebSocket.OPEN).length;
+  private health(): Response {
+    const ago = (t: number) => (t ? `${Math.round((Date.now() - t) / 1000)}s ago` : "never");
+    const sources: Record<string, unknown> = {};
+    for (const s of this.sources.values()) {
+      sources[s.name] = {
+        status: s.status,
+        connectedFor: s.connectedAt ? `${Math.round((Date.now() - s.connectedAt) / 1000)}s` : "not connected",
+        messages: s.messages,
+        trades: s.trades,
+        deliveredFirst: s.firstToDeliver,
+        lastMessage: ago(s.lastMessageAt),
+        lastError: s.lastError || null,
+      };
+    }
+    return Response.json({
+      ok: true,
+      status: this.status,
+      mint: this.mint() || null,
+      clients: this.openClientCount(),
+      tradesForwarded: this.tradesForwarded,
+      lastTrade: ago(this.lastTradeAt),
+      enabledSources: this.enabledSources(),
+      sources,
+      notes: this.notes,
+    });
   }
 
-  private sendToSocket(socket: WebSocket, payload: Record<string, unknown>): void {
+  private openClientCount(): number {
+    let n = 0;
+    for (const c of this.clients) if (c.readyState === WebSocket.OPEN) n++;
+    return n;
+  }
+
+  private send(socket: WebSocket, payload: Record<string, unknown>): void {
     if (socket.readyState !== WebSocket.OPEN) return;
     try {
       socket.send(JSON.stringify(payload));
-    } catch (error) {
-      console.warn("[kaiju-relay] Could not send to a browser socket:", error);
+    } catch {
+      /* ignore */
     }
   }
 
@@ -169,230 +159,258 @@ export class KaijuRelay extends DurableObject<Env> {
       if (socket.readyState !== WebSocket.OPEN) continue;
       try {
         socket.send(encoded);
-      } catch (error) {
-        console.warn("[kaiju-relay] Browser socket send failed:", error);
-      }
-    }
-  }
-
-  private setStatus(status: RelayStatus): void {
-    this.status = status;
-    this.broadcast({ type: "status", status });
-  }
-
-  private connectUpstream(): void {
-    if (this.openClientCount() === 0) return;
-
-    const mint = this.mint();
-    const apiKey = this.env.PUMPPORTAL_API_KEY?.trim() || "";
-
-    if (!BASE58_MINT_PATTERN.test(mint) || !apiKey) {
-      console.warn("[kaiju-relay] Missing or invalid KAIJU_MINT / PUMPPORTAL_API_KEY.");
-      this.setStatus("needs-config");
-      return;
-    }
-
-    if (
-      this.upstream &&
-      (this.upstream.readyState === WebSocket.CONNECTING ||
-        this.upstream.readyState === WebSocket.OPEN)
-    ) {
-      return;
-    }
-
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
-    this.setStatus("connecting");
-
-    const endpoint = `wss://pumpportal.fun/api/data?api-key=${encodeURIComponent(apiKey)}`;
-    let socket: WebSocket;
-
-    try {
-      socket = new WebSocket(endpoint);
-    } catch (error) {
-      console.error("[kaiju-relay] Could not create PumpPortal socket:", error);
-      this.upstream = null;
-      this.setStatus("offline");
-      this.scheduleReconnect();
-      return;
-    }
-
-    this.upstream = socket;
-
-    socket.addEventListener("open", () => {
-      if (this.upstream !== socket) {
-        socket.close(1000, "Superseded relay connection");
-        return;
-      }
-
-      this.reconnectAttempt = 0;
-      this.stats.connectedAt = Date.now();
-      this.note("Connected to PumpPortal, subscription sent.");
-      console.log(`[kaiju-relay] PumpPortal connected. Subscribing to ${mint}.`);
-
-      try {
-        socket.send(JSON.stringify({ method: "subscribeTokenTrade", keys: [mint] }));
-        this.setStatus("live");
-      } catch (error) {
-        console.error("[kaiju-relay] Subscription failed:", error);
-        socket.close(1011, "Subscription failed");
-      }
-    });
-
-    socket.addEventListener("message", (message: MessageEvent) => {
-      if (this.upstream !== socket) return;
-      this.handlePumpPortalMessage(message.data);
-    });
-
-    socket.addEventListener("error", (error) => {
-      console.error("[kaiju-relay] PumpPortal WebSocket error:", error);
-      // Force the close handler to perform the normal reconnect path.
-      try {
-        socket.close(1011, "PumpPortal socket error");
       } catch {
-        // The close event may already be in progress.
-      }
-    });
-
-    socket.addEventListener("close", (event: CloseEvent) => {
-      if (this.upstream !== socket) return;
-      console.warn(`[kaiju-relay] PumpPortal closed (${event.code}): ${event.reason}`);
-      this.note(`PumpPortal closed the connection (code ${event.code})${event.reason ? `: ${event.reason}` : ""}`);
-      this.stats.connectedAt = 0;
-      this.upstream = null;
-      this.setStatus("offline");
-      this.scheduleReconnect();
-    });
-  }
-
-  private handlePumpPortalMessage(raw: unknown): void {
-    let event: PumpPortalEvent;
-    try {
-      const decoded = typeof raw === "string" ? raw : String(raw);
-      const parsed: unknown = JSON.parse(decoded);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
-      event = parsed as PumpPortalEvent;
-    } catch {
-      const text = typeof raw === "string" ? raw : "[binary message]";
-      console.warn("[kaiju-relay] Non-JSON PumpPortal message:", text);
-      this.note(`Non-JSON: ${text}`);
-      return;
-    } finally {
-      this.stats.messagesReceived += 1;
-      this.stats.lastMessageAt = Date.now();
-    }
-
-    // Anything without a trade side is a control message (subscription reply,
-    // error, rate-limit notice). Keep it visible on /health and in the logs.
-    const side = String(event.txType ?? event.side ?? "").toLowerCase();
-    if (side !== "buy" && side !== "sell") {
-      const text = JSON.stringify(event);
-      console.log("[kaiju-relay] PumpPortal message:", text);
-      this.note(text);
-      return;
-    }
-
-    // Never forward trades from another mint, even if the upstream sends one.
-    if (String(event.mint ?? "").trim() !== this.mint()) {
-      this.stats.otherMintMessages += 1;
-      return;
-    }
-
-    const traderPublicKey = String(event.traderPublicKey ?? event.wallet ?? "").trim();
-    if (!traderPublicKey) return;
-
-    let solAmount = finiteNumber(event.solAmount);
-    if (solAmount === null) {
-      const quoteAmount = finiteNumber(event.quoteAmount);
-      const quoteMint = String(event.quoteMint ?? "");
-      // Only treat quoteAmount as SOL when the quote mint is wrapped SOL.
-      if (quoteAmount !== null && quoteMint === WRAPPED_SOL_MINT) {
-        solAmount = quoteAmount;
+        /* ignore */
       }
     }
-
-    if (solAmount === null || solAmount <= 0) return;
-
-    const signature = typeof event.signature === "string" ? event.signature : undefined;
-    if (signature) {
-      if (this.seenSignatures.has(signature)) return;
-      this.seenSignatures.add(signature);
-      this.signatureOrder.push(signature);
-      if (this.signatureOrder.length > MAX_SEEN_SIGNATURES) {
-        const oldest = this.signatureOrder.shift();
-        if (oldest) this.seenSignatures.delete(oldest);
-      }
-    }
-
-    const tokenAmount = finiteNumber(event.tokenAmount ?? event.baseAmount) ?? 0;
-    const marketCapSol = finiteNumber(event.marketCapSol ?? event.marketCapQuote) ?? 0;
-
-    this.stats.tradesForwarded += 1;
-    this.stats.lastTradeAt = Date.now();
-    console.log(`[kaiju-relay] ${side} ${solAmount} SOL by ${traderPublicKey}`);
-    this.broadcast({
-      type: "trade",
-      id: signature || crypto.randomUUID(),
-      txType: side,
-      traderPublicKey,
-      solAmount,
-      tokenAmount,
-      marketCapSol,
-      signature,
-      timestamp: normalizeTimestamp(event.timestamp),
-    });
   }
 
-  private scheduleReconnect(): void {
-    if (this.openClientCount() === 0 || this.reconnectTimer) return;
-
-    const exponential = Math.min(30_000, 1_500 * 2 ** this.reconnectAttempt);
-    const jitter = Math.floor(Math.random() * 500);
-    const delay = exponential + jitter;
-    this.reconnectAttempt = Math.min(this.reconnectAttempt + 1, 5);
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connectUpstream();
-    }, delay);
-  }
-
-  /** Keeps idle browser connections alive while the token is quiet. */
   private startHeartbeat(): void {
     if (this.heartbeat) return;
     this.heartbeat = setInterval(() => {
-      if (this.openClientCount() === 0) return;
-      this.broadcast({ type: "ping", t: Date.now() });
+      if (this.openClientCount() > 0) this.broadcast({ type: "ping", t: Date.now() });
     }, HEARTBEAT_MS);
   }
 
   private handleClientDisconnect(client: WebSocket): void {
     this.clients.delete(client);
     if (this.openClientCount() > 0) return;
-
+    // Nobody is watching: close every upstream connection to save resources.
     if (this.heartbeat) {
       clearInterval(this.heartbeat);
       this.heartbeat = null;
     }
+    for (const s of this.sources.values()) this.stopSource(s);
+    this.status = "offline";
+  }
 
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+  /* ------------------------------ status ------------------------------ */
+
+  private refreshStatus(): void {
+    let next: RelayStatus = "offline";
+    const states = [...this.sources.values()].map((s) => s.status);
+    if (states.includes("open")) next = "live";
+    else if (states.includes("connecting") || states.includes("retrying")) next = "connecting";
+    if (next !== this.status) {
+      this.status = next;
+      this.broadcast({ type: "status", status: next });
     }
+  }
 
-    const previous = this.upstream;
-    this.upstream = null;
-    if (previous && previous.readyState < WebSocket.CLOSING) {
+  /* ------------------------------ sources ----------------------------- */
+
+  private startSources(): void {
+    const mint = this.mint();
+    if (!BASE58_MINT_PATTERN.test(mint)) {
+      this.status = "needs-config";
+      this.broadcast({ type: "status", status: "needs-config" });
+      this.note("KAIJU_MINT is missing or not a valid Solana address.");
+      return;
+    }
+    for (const name of this.enabledSources()) {
+      let source = this.sources.get(name);
+      if (!source) {
+        source = newSource(name);
+        this.sources.set(name, source);
+      }
+      if (source.status === "idle") this.openSource(source);
+    }
+    this.refreshStatus();
+  }
+
+  private sourceUrl(name: SourceName): string {
+    if (name === "chain") return this.env.SOLANA_WS_URL?.trim() || PUBLIC_SOLANA_WS;
+    if (name === "pumpdev") return "wss://pumpdev.io/ws";
+    const key = this.env.PUMPPORTAL_API_KEY?.trim();
+    return key ? `wss://pumpportal.fun/api/data?api-key=${encodeURIComponent(key)}` : "wss://pumpportal.fun/api/data";
+  }
+
+  private subscribeMessage(name: SourceName): string {
+    if (name === "chain") {
+      return JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "logsSubscribe",
+        params: [{ mentions: [this.mint()] }, { commitment: "confirmed" }],
+      });
+    }
+    return JSON.stringify({ method: "subscribeTokenTrade", keys: [this.mint()] });
+  }
+
+  private openSource(source: Source): void {
+    if (this.openClientCount() === 0) {
+      source.status = "idle";
+      return;
+    }
+    if (source.timer) {
+      clearTimeout(source.timer);
+      source.timer = null;
+    }
+    source.status = "connecting";
+    this.refreshStatus();
+
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(this.sourceUrl(source.name));
+    } catch (error) {
+      source.lastError = `Could not open socket: ${String(error)}`;
+      this.retry(source);
+      return;
+    }
+    source.socket = socket;
+
+    socket.addEventListener("open", () => {
+      if (source.socket !== socket) {
+        socket.close(1000, "superseded");
+        return;
+      }
+      source.status = "open";
+      source.attempt = 0;
+      source.connectedAt = Date.now();
+      source.lastError = "";
+      this.note(`${source.name}: connected`);
       try {
-        previous.close(1000, "No Kaiju City viewers connected");
+        socket.send(this.subscribeMessage(source.name));
+      } catch (error) {
+        source.lastError = `Subscribe failed: ${String(error)}`;
+        socket.close(1011, "subscribe failed");
+        return;
+      }
+      // Some RPCs drop idle sockets; a harmless request every 30s keeps it open.
+      if (source.name === "chain") {
+        let n = 1000;
+        source.keepAlive = setInterval(() => {
+          try {
+            socket.send(JSON.stringify({ jsonrpc: "2.0", id: n++, method: "getHealth" }));
+          } catch {
+            /* close handler will retry */
+          }
+        }, 30_000);
+      }
+      this.refreshStatus();
+    });
+
+    socket.addEventListener("message", (message: MessageEvent) => {
+      if (source.socket !== socket) return;
+      source.messages += 1;
+      source.lastMessageAt = Date.now();
+      this.handleMessage(source, message.data);
+    });
+
+    socket.addEventListener("error", () => {
+      try {
+        socket.close(1011, "error");
       } catch {
-        // Ignore a socket that is already closing.
+        /* already closing */
+      }
+    });
+
+    socket.addEventListener("close", (event: CloseEvent) => {
+      if (source.socket !== socket) return;
+      source.socket = null;
+      source.connectedAt = 0;
+      if (source.keepAlive) {
+        clearInterval(source.keepAlive);
+        source.keepAlive = null;
+      }
+      source.lastError = `closed (code ${event.code})${event.reason ? `: ${event.reason}` : ""}`;
+      this.note(`${source.name}: ${source.lastError}`);
+      this.retry(source);
+    });
+  }
+
+  private retry(source: Source): void {
+    if (this.openClientCount() === 0) {
+      source.status = "idle";
+      this.refreshStatus();
+      return;
+    }
+    source.status = "retrying";
+    const delay = Math.min(MAX_BACKOFF_MS, 1_500 * 2 ** source.attempt) + Math.floor(Math.random() * 750);
+    source.attempt = Math.min(source.attempt + 1, 6);
+    source.timer = setTimeout(() => {
+      source.timer = null;
+      this.openSource(source);
+    }, delay);
+    this.refreshStatus();
+  }
+
+  private stopSource(source: Source): void {
+    if (source.timer) clearTimeout(source.timer);
+    if (source.keepAlive) clearInterval(source.keepAlive);
+    source.timer = null;
+    source.keepAlive = null;
+    const socket = source.socket;
+    source.socket = null;
+    source.status = "idle";
+    source.connectedAt = 0;
+    if (socket && socket.readyState < WebSocket.CLOSING) {
+      try {
+        socket.close(1000, "no viewers");
+      } catch {
+        /* ignore */
       }
     }
+  }
 
-    this.status = "offline";
+  /* ----------------------------- messages ----------------------------- */
+
+  private handleMessage(source: Source, raw: unknown): void {
+    let data: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(typeof raw === "string" ? raw : String(raw));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+      data = parsed as Record<string, unknown>;
+    } catch {
+      this.note(`${source.name}: non-JSON message`);
+      return;
+    }
+
+    if (source.name === "chain") {
+      if (data.method === "logsNotification") {
+        const value = (data.params as { result?: { value?: { signature?: string; err?: unknown; logs?: string[] } } } | undefined)?.result?.value;
+        if (!value?.signature || value.err || !Array.isArray(value.logs)) return;
+        for (const trade of tradesFromLogs(value.signature, value.logs, this.mint())) this.forward(source, trade);
+        return;
+      }
+      // Subscription reply or error. Ignore keep-alive replies.
+      if (typeof data.id === "number" && data.id >= 1000) return;
+      this.note(`chain: ${JSON.stringify(data)}`);
+      return;
+    }
+
+    const trade = tradeFromFeedEvent(data, this.mint());
+    if (trade) {
+      this.forward(source, trade);
+      return;
+    }
+    // Not a trade for our mint: surface control messages (subscribe replies, errors).
+    if (!("txType" in data) && !("signature" in data)) this.note(`${source.name}: ${JSON.stringify(data)}`);
+  }
+
+  private forward(source: Source, trade: Trade): void {
+    source.trades += 1;
+    if (this.seen.has(trade.key)) return;
+    this.seen.add(trade.key);
+    this.seenOrder.push(trade.key);
+    if (this.seenOrder.length > MAX_SEEN) {
+      const old = this.seenOrder.shift();
+      if (old) this.seen.delete(old);
+    }
+    source.firstToDeliver += 1;
+    this.tradesForwarded += 1;
+    this.lastTradeAt = Date.now();
+    this.broadcast({
+      type: "trade",
+      id: trade.key,
+      txType: trade.txType,
+      traderPublicKey: trade.traderPublicKey,
+      solAmount: trade.solAmount,
+      tokenAmount: trade.tokenAmount,
+      marketCapSol: trade.marketCapSol,
+      signature: trade.signature,
+      timestamp: trade.timestamp,
+      provider: source.name,
+    });
   }
 }

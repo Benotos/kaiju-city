@@ -45,7 +45,7 @@ function BrandMark() {
 }
 
 function StatusChip({ status }: { status: FeedStatus }) {
-  const label = status === "live" ? "LIVE ON-CHAIN" : status === "connecting" ? "CONNECTING RELAY" : status === "offline" ? "RELAY OFFLINE" : "DEMO STREAM";
+  const label = status === "live" ? "LIVE ON-CHAIN" : status === "connecting" ? "CONNECTING FEED" : status === "offline" ? "RECONNECTING" : "DEMO STREAM";
   return <span className={`status-chip status-${status}`}><span className="pulse" />{label}</span>;
 }
 
@@ -411,7 +411,7 @@ export default function Home() {
               <li className="feed-empty"><Radio size={22} /><b>WAITING FOR THE FIRST TRADE</b><span>Every buy and sell shows up here, with what it did to the city.</span></li>
             ) : feed.map((item) => <FeedRow key={item.id} item={item} onFocus={focusWallet} />)}
           </ul>
-          <div className="feed-foot"><span>{feedStatus === "live" ? "RELAY CONNECTED" : feedStatus === "demo" ? "DEMO EVENTS · NOT MARKET DATA" : "CHECK RELAY CONFIG"}</span><span>{String(feed.length).padStart(2, "0")}/{FEED_LIMIT}</span></div>
+          <div className="feed-foot"><span>{feedStatus === "live" ? "MARKET FEED CONNECTED" : feedStatus === "demo" ? "DEMO EVENTS · NOT MARKET DATA" : "RECONNECTING TO MARKET FEED…"}</span><span>{String(feed.length).padStart(2, "0")}/{FEED_LIMIT}</span></div>
         </aside>
 
         <div className="statbar">

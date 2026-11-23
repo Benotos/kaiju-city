@@ -1,95 +1,53 @@
-# Kaiju City Cloudflare trade relay
+# Kaiju City live trade relay (Cloudflare Worker)
 
-This is a separate Cloudflare Worker project for Kaiju City's live Solana trade feed. It does not modify the Next.js application.
+Streams one token's buys and sells to the Kaiju City site. It reads from **three independent sources at once** and de-duplicates by transaction signature, so the city keeps moving if any one provider goes down:
 
-## 1. Install and sign in
+| Source | What it is | Needs |
+| --- | --- | --- |
+| `chain` | Reads pump.fun / PumpSwap trade events straight from Solana (`logsSubscribe`) | Nothing (uses the public RPC). Optional `SOLANA_WS_URL` secret for a faster, more reliable RPC such as Helius |
+| `pumpdev` | PumpDev's free WebSocket feed | Nothing |
+| `pumpportal` | PumpPortal's WebSocket feed | Nothing for pump.fun tokens. Optional `PUMPPORTAL_API_KEY` secret for PumpSwap data |
 
-From this folder, run:
+Upstream connections open when the first visitor arrives and close when the last one leaves.
+
+## Deploy
+
+From this folder:
 
 ```bash
 npm install
-npx wrangler login
+npx wrangler login        # first time only
+npm run deploy
 ```
 
-A browser window will open so you can authorize Wrangler with your Cloudflare account.
+The token is set by `KAIJU_MINT` in `wrangler.jsonc`.
 
-## 2. Add the PumpPortal API key as a Cloudflare secret
+## Optional secrets (recommended for launch)
 
-Run this command and paste your API key only when Wrangler prompts you:
+A dedicated RPC is the most reliable source. Create a free Helius account, copy your mainnet **WebSocket** URL (`wss://mainnet.helius-rpc.com/?api-key=...`), then:
+
+```bash
+npx wrangler secret put SOLANA_WS_URL
+```
+
+PumpPortal key (only if you want PumpPortal's PumpSwap data):
 
 ```bash
 npx wrangler secret put PUMPPORTAL_API_KEY
 ```
 
-Do not add this API key to the Next.js app, Vercel, `wrangler.jsonc`, or any `NEXT_PUBLIC_` variable.
+Never put keys in `wrangler.jsonc`, the Next.js app, Vercel, or any `NEXT_PUBLIC_` variable.
 
-The test mint is already set in `wrangler.jsonc`:
+To run only some sources, set a `SOURCES` var, e.g. `"SOURCES": "chain,pumpdev"`.
 
-```text
-DUZrwdjEthcJ99ZiRXr31UuqTohoTg7VjTEyfGdBpump
-```
+## Check it
 
-## 3. Deploy the relay
+Open `https://<your-worker>.workers.dev/health` while the site is open. You'll see each source's status, how many messages and trades it has delivered, its last error, and recent notes.
 
-```bash
-npm run deploy
-```
-
-Wrangler will print a URL similar to:
-
-```text
-https://kaiju-city-live-relay.<your-account-subdomain>.workers.dev
-```
-
-Keep that public URL. The WebSocket URL is the same address with `wss://` instead of `https://`.
-
-## 4. Set the Vercel environment variables
-
-In the Kaiju City Vercel project, open **Settings → Environment Variables** and add:
-
-```text
-NEXT_PUBLIC_TOKEN_MINT=DUZrwdjEthcJ99ZiRXr31UuqTohoTg7VjTEyfGdBpump
-NEXT_PUBLIC_TRADE_RELAY_URL=wss://kaiju-city-live-relay.<your-account-subdomain>.workers.dev
-```
-
-Replace `<your-account-subdomain>` with the actual subdomain printed by Wrangler. Do not include `https://` in the WebSocket variable; use `wss://`.
-
-Redeploy the Vercel site after adding the variables.
-
-## 5. Verify
-
-Open this URL in a browser:
-
-```text
-https://kaiju-city-live-relay.<your-account-subdomain>.workers.dev/health
-```
-
-Expected once the site has at least one viewer connected:
-
-- `ok`: `true`
-- `status`: `live`
-- `upstreamConnected`: `true`
-- `mint`: the test mint above
-- `clients`: one or more connected browser tabs
-
-The relay starts its PumpPortal connection when the first browser connects, and closes it after the last browser disconnects. PumpPortal provides new live events; this relay does not backfill historical trades.
-
-## Local testing (optional)
-
-Set the secret for local development in a `.dev.vars` file in this folder (never commit it):
-
-```text
-PUMPPORTAL_API_KEY=your_key_here
-```
-
-Then run:
+## Test with another token
 
 ```bash
-npm run dev
+npx wrangler deploy --var KAIJU_MINT:<mint>
 ```
 
-The local WebSocket URL is normally `ws://localhost:8787`; the health endpoint is `http://localhost:8787/health`.
-
-## Cost note
-
-The client WebSockets use the standard Durable Object WebSocket API so the DO can manage the outbound PumpPortal socket reliably for the initial test. Cloudflare bills Durable Object duration while standard WebSocket connections keep an object active. Check Workers & Durable Objects usage in the Cloudflare dashboard during testing, and set an account spending limit if you enable one. Free-plan quotas are not a guarantee that sustained production traffic will remain free.
+A plain `npm run deploy` switches back to the mint in `wrangler.jsonc`.
