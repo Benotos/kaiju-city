@@ -9,3 +9,9 @@ out
 
 .vercel
 .env*
+!.env.example
+
+# Cloudflare Worker (never commit secrets)
+.dev.vars
+.dev.vars.*
+.wrangler
