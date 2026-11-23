@@ -10,14 +10,14 @@ import { beaconMaterial, buildRubbleGeometry, buildTowerGeometry, getBodyMateria
 const RISE_MS = 1300;
 const COLLAPSE_MS = 950;
 
-type TowerProps = { building: CityBuilding; focused: boolean; labelled: boolean };
+type TowerProps = { building: CityBuilding; focused: boolean; labelled: boolean; onSelect?: (wallet: string) => void };
 
 /**
  * One tower. Data changes (rise, growth, damage, destruction) arrive as new
  * target values; the frame loop eases the displayed height towards them, and
  * waits for the kaiju's hit time before showing damage.
  */
-export const Tower = memo(function Tower({ building: b, focused, labelled }: TowerProps) {
+export const Tower = memo(function Tower({ building: b, focused, labelled, onSelect }: TowerProps) {
   const geo = useMemo(() => buildTowerGeometry(b.style, b.width, b.height, b.seed), [b.style, b.width, b.height, b.seed]);
   useEffect(() => () => {
     geo.body.dispose();
@@ -119,7 +119,15 @@ export const Tower = memo(function Tower({ building: b, focused, labelled }: Tow
 
   const H = Math.max(2.5, b.height);
   return (
-    <group ref={root} position={[b.x, 0, b.z]}>
+    <group
+      ref={root}
+      position={[b.x, 0, b.z]}
+      onClick={(event) => {
+        if (event.delta > 6 || !b.claimed) return;
+        event.stopPropagation();
+        onSelect?.(b.wallet);
+      }}
+    >
       <group rotation-y={geo.rotation}>
         <group ref={scaled}>
           <mesh geometry={geo.body} material={getBodyMaterial(b.color)} />

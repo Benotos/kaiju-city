@@ -10,7 +10,9 @@ import { CITY_RADIUS } from "@/lib/city";
 import { FocusMarker, Rubble, Tower } from "@/components/city/Towers";
 import { InstancedTowers } from "@/components/city/InstancedTowers";
 import { ImpactEffects, Kaiju, impactShake } from "@/components/city/Kaiju";
-import { Atmosphere, Backdrop, Ground, Lights, Sky, Traffic } from "@/components/city/World";
+import { Atmosphere, Backdrop, Ground, Lights, Sky, StreetLamps, Traffic } from "@/components/city/World";
+import { Birds, Trees } from "@/components/city/Nature";
+import { ProximityLabels } from "@/components/city/Labels";
 
 type OrbitControlsImpl = {
   target: THREE.Vector3;
@@ -26,6 +28,8 @@ type SceneProps = {
   focusedWallet: string | null;
   /** Increment to fly the camera back to the full-city view. */
   resetToken: number;
+  /** Called when the viewer taps a tower. */
+  onSelect?: (wallet: string) => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -45,10 +49,10 @@ function CameraRig({ focus, fitRadius, resetToken }: { focus: CityBuilding | und
     const aspect = size.width / Math.max(1, size.height);
     const vFov = (persp.fov * Math.PI) / 180;
     // Big holder cities: frame the skyline core rather than the far edge.
-    const framed = fitRadius > 40 ? 40 + (fitRadius - 40) * 0.45 : fitRadius;
+    const framed = fitRadius > 40 ? 40 + (fitRadius - 40) * 0.33 : fitRadius;
     let dist = (framed / Math.tan(vFov / 2)) * 0.82;
     if (aspect < 1.25) dist /= Math.pow(aspect / 1.25, 0.55);
-    dist = THREE.MathUtils.clamp(dist, 26, 230);
+    dist = THREE.MathUtils.clamp(dist, 26, 260);
     const dir = new THREE.Vector3(1, 0.78, 1.2).normalize();
     return { pos: dir.multiplyScalar(dist), target: new THREE.Vector3(0, 4.5, 0) };
   }, [camera, size.width, size.height, fitRadius]);
@@ -144,7 +148,7 @@ function ShakeGroup({ children }: { children: ReactNode }) {
 const HERO_COUNT = 90;
 const HERO_COUNT_LOW = 40;
 
-function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: SceneProps & { lowPower: boolean }) {
+function City({ buildings, attacks, focusedWallet, resetToken, onSelect, lowPower }: SceneProps & { lowPower: boolean }) {
   const focused = useMemo(() => buildings.find((b) => b.claimed && b.wallet === focusedWallet && b.status === "standing"), [buildings, focusedWallet]);
 
   const occupiedRadius = useMemo(
@@ -198,19 +202,23 @@ function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: Scene
       <fogExp2 attach="fog" args={["#06182c", fogDensity]} />
       <Sky />
       <Stars radius={180} depth={60} count={lowPower ? 700 : 1600} factor={4} saturation={0} fade speed={0.4} />
-      <Lights />
+      <Lights radius={occupiedRadius} />
       <ShakeGroup>
         <Ground radius={occupiedRadius} />
-        <Backdrop count={lowPower ? 80 : 170} />
-        <Traffic count={lowPower ? 36 : 90} />
+        <StreetLamps radius={occupiedRadius} spacing={lowPower ? 18 : 12} />
+        <Trees radius={occupiedRadius} lowPower={lowPower} />
+        <Backdrop count={lowPower ? 80 : 170} radius={occupiedRadius} />
+        <Traffic count={lowPower ? 120 : 280} flying={lowPower ? 20 : 45} radius={occupiedRadius} />
+        <Birds count={lowPower ? 30 : 66} radius={occupiedRadius} />
         <Atmosphere radius={occupiedRadius} />
         {heroes.map((b) => (
-          <Tower key={b.id} building={b} focused={focused?.id === b.id} labelled={labelled.has(b.id)} />
+          <Tower key={b.id} building={b} focused={focused?.id === b.id} labelled={labelled.has(b.id)} onSelect={onSelect} />
         ))}
-        <InstancedTowers buildings={minors} />
+        <InstancedTowers buildings={minors} onSelect={onSelect} />
+        <ProximityLabels buildings={buildings} skip={labelled} limit={lowPower ? 16 : 36} />
         {buildings.filter((b) => b.status === "rubble").map((b) => <Rubble key={`rubble-${b.id}`} building={b} />)}
         <FocusMarker building={focused} />
-        <Kaiju attacks={attacks} prowlRadius={Math.min(CITY_RADIUS + 4, occupiedRadius + 6)} />
+        <Kaiju attacks={attacks} prowlRadius={Math.min(CITY_RADIUS, Math.max(30, occupiedRadius * 0.5))} />
         <ImpactEffects attacks={attacks} />
       </ShakeGroup>
       <OrbitControls
@@ -221,7 +229,7 @@ function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: Scene
         zoomSpeed={0.9}
         panSpeed={0.8}
         minDistance={12}
-        maxDistance={280}
+        maxDistance={460}
         minPolarAngle={0.2}
         maxPolarAngle={1.42}
         autoRotateSpeed={0.55}
@@ -296,7 +304,7 @@ export default function CityScene(props: SceneProps) {
           key={generation}
           frameloop="always"
           dpr={[1, lowPower ? 1.3 : 1.8]}
-          camera={{ position: [44, 34, 54], fov: 42, near: 0.5, far: 700 }}
+          camera={{ position: [44, 34, 54], fov: 42, near: 0.5, far: 2200 }}
           gl={{ antialias: true, alpha: false, stencil: false, powerPreference: "high-performance" }}
           onCreated={({ gl }) => {
             gl.toneMapping = THREE.ACESFilmicToneMapping;

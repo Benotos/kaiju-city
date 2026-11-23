@@ -5,13 +5,13 @@ import type { CityBuilding, HolderScale, HolderSnapshot, KaijuAttack, TradeEvent
 /* ------------------------------------------------------------------ */
 
 /** Spacing between the two lots inside a block. */
-export const LOT = 3.3;
+export const LOT = 4.8;
 /** Street width between blocks. */
-export const STREET = 2.8;
+export const STREET = 5.2;
 /** Distance between block centres. */
 export const BLOCK_PITCH = LOT * 2 + STREET;
 /** Blocks per side of the grid. */
-export const GRID_BLOCKS = 26;
+export const GRID_BLOCKS = 24;
 /** Number of lots the market can build on (one per holder). */
 export const MAX_TOWERS = 1600;
 /** How long the kaiju takes to reach a target, in ms. */
@@ -22,20 +22,32 @@ export const TOWER_STYLES = 7;
 export const NEON = ["#5fd4ff", "#7ea6ff", "#d8ecff", "#3f7bff", "#ffb547", "#43e3d0", "#9d93ff", "#ffd28a"];
 
 export type Slot = { index: number; x: number; z: number; ring: number };
+export type Park = { x: number; z: number; ring: number };
+
+/** Lots left open as parks (trees and grass instead of a tower). */
+export const PARKS: Park[] = [];
+/** Centre of every block, for kerbs, pavements and street trees. */
+export const BLOCKS: { x: number; z: number; ring: number }[] = [];
 
 function buildSlots(): Slot[] {
   const slots: Omit<Slot, "index">[] = [];
   const half = (GRID_BLOCKS - 1) / 2;
   for (let bx = 0; bx < GRID_BLOCKS; bx++) {
     for (let bz = 0; bz < GRID_BLOCKS; bz++) {
+      const cx = (bx - half) * BLOCK_PITCH;
+      const cz = (bz - half) * BLOCK_PITCH;
+      BLOCKS.push({ x: cx, z: cz, ring: Math.hypot(cx, cz) });
       for (let lx = 0; lx < 2; lx++) {
         for (let lz = 0; lz < 2; lz++) {
           const x = (bx - half) * BLOCK_PITCH + (lx - 0.5) * LOT;
           const z = (bz - half) * BLOCK_PITCH + (lz - 0.5) * LOT;
           const ring = Math.hypot(x, z);
-          // Leave ~14% of lots outside the core as open plazas so the city breathes.
+          // About one lot in five outside the core is a park, so the city breathes.
           const plaza = ((bx * 73856093) ^ (bz * 19349663) ^ (lx * 83492791) ^ (lz * 2654435761)) >>> 0;
-          if (ring > 12 && plaza % 100 < 14) continue;
+          if (ring > 16 && plaza % 100 < 21) {
+            PARKS.push({ x, z, ring });
+            continue;
+          }
           slots.push({ x, z, ring });
         }
       }
@@ -110,7 +122,7 @@ function makeTower(partial: Pick<CityBuilding, "id" | "wallet" | "claimed" | "sl
   return {
     x: slot.x,
     z: slot.z,
-    width: 1.5 + rand() * 0.7,
+    width: 1.7 + rand() * 0.8,
     style: Math.floor(rand() * TOWER_STYLES),
     color: NEON[Math.floor(rand() * NEON.length)],
     seed,
@@ -268,7 +280,7 @@ export function applyTradeToCity(current: CityBuilding[], trade: TradeEvent, now
 /* Holder city: one tower per wallet, height by balance                */
 /* ------------------------------------------------------------------ */
 
-const HOLDER_MIN_H = 2.2;
+const HOLDER_MIN_H = 1.6;
 const HOLDER_MAX_H = 30;
 
 export function scaleFromSnapshot(snapshot: HolderSnapshot): HolderScale {
@@ -308,11 +320,12 @@ function holderT(balance: number, scale: HolderScale) {
 
 export function heightForBalance(balance: number, scale: HolderScale) {
   const t = holderT(balance, scale);
-  return HOLDER_MIN_H + (HOLDER_MAX_H - HOLDER_MIN_H) * Math.pow(t, 1.6);
+  // Steep curve: a high-rise core of top holders over mid- and low-rise districts.
+  return HOLDER_MIN_H + (HOLDER_MAX_H - HOLDER_MIN_H) * Math.pow(t, 2.4);
 }
 
 function widthForBalance(balance: number, scale: HolderScale) {
-  return 1.5 + 1.0 * Math.min(1, holderT(balance, scale));
+  return 1.6 + 1.1 * Math.min(1, holderT(balance, scale));
 }
 
 export function isHolderCity(buildings: CityBuilding[]) {

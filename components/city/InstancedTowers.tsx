@@ -140,7 +140,7 @@ export function archetypeOf(building: CityBuilding) {
   return (building.seed >>> 5) % ARCHETYPES.length;
 }
 
-export function InstancedTowers({ buildings }: { buildings: CityBuilding[] }) {
+export function InstancedTowers({ buildings, onSelect }: { buildings: CityBuilding[]; onSelect?: (wallet: string) => void }) {
   const groups = useMemo(() => {
     const out: CityBuilding[][] = ARCHETYPES.map(() => []);
     for (const b of buildings) out[archetypeOf(b)].push(b);
@@ -149,19 +149,19 @@ export function InstancedTowers({ buildings }: { buildings: CityBuilding[] }) {
   return (
     <>
       {ARCHETYPES.map((archetype, i) => (
-        <ArchetypeLayer key={archetype.name} archetype={archetype} buildings={groups[i]} />
+        <ArchetypeLayer key={archetype.name} archetype={archetype} buildings={groups[i]} onSelect={onSelect} />
       ))}
     </>
   );
 }
 
-function ArchetypeLayer({ archetype, buildings }: { archetype: Archetype; buildings: CityBuilding[] }) {
+function ArchetypeLayer({ archetype, buildings, onSelect }: { archetype: Archetype; buildings: CityBuilding[]; onSelect?: (wallet: string) => void }) {
   // Grow capacity in chunks so meshes are only rebuilt when the city outgrows them.
   const capacity = Math.max(64, Math.ceil(buildings.length / 128) * 128);
-  return <Layer key={capacity} capacity={capacity} archetype={archetype} buildings={buildings} />;
+  return <Layer key={capacity} capacity={capacity} archetype={archetype} buildings={buildings} onSelect={onSelect} />;
 }
 
-function Layer({ archetype, buildings, capacity }: { archetype: Archetype; buildings: CityBuilding[]; capacity: number }) {
+function Layer({ archetype, buildings, capacity, onSelect }: { archetype: Archetype; buildings: CityBuilding[]; capacity: number; onSelect?: (wallet: string) => void }) {
   const body = useRef<THREE.InstancedMesh>(null);
   const roof = useRef<THREE.InstancedMesh>(null);
   const shown = useRef(new Map<string, number>());
@@ -252,12 +252,21 @@ function Layer({ archetype, buildings, capacity }: { archetype: Archetype; build
   const bodyColors = useMemo(() => new Float32Array(capacity * 3).fill(1), [capacity]);
   const roofColors = useMemo(() => new Float32Array(capacity * 3).fill(1), [capacity]);
 
+  // Tap / click a tower to focus it (ignored if the pointer was dragging the camera).
+  const select = (event: { delta: number; instanceId?: number; stopPropagation: () => void }) => {
+    if (event.delta > 6 || event.instanceId === undefined) return;
+    const building = buildings[event.instanceId];
+    if (!building) return;
+    event.stopPropagation();
+    onSelect?.(building.wallet);
+  };
+
   return (
     <>
-      <instancedMesh ref={body} args={[bodyGeometry, bodyMaterial, capacity]} frustumCulled={false}>
+      <instancedMesh ref={body} args={[bodyGeometry, bodyMaterial, capacity]} frustumCulled={false} onClick={select}>
         <instancedBufferAttribute attach="instanceColor" args={[bodyColors, 3]} />
       </instancedMesh>
-      <instancedMesh ref={roof} args={[roofGeometry, roofMaterial, capacity]} frustumCulled={false}>
+      <instancedMesh ref={roof} args={[roofGeometry, roofMaterial, capacity]} frustumCulled={false} onClick={select}>
         <instancedBufferAttribute attach="instanceColor" args={[roofColors, 3]} />
       </instancedMesh>
     </>

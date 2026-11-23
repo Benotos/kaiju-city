@@ -537,13 +537,13 @@ export default function Home() {
 
       <section className="console" id="city">
         <div className="stage">
-          <CityScene buildings={buildings} attacks={attacks} focusedWallet={focusedWallet} resetToken={resetToken} />
+          <CityScene buildings={buildings} attacks={attacks} focusedWallet={focusedWallet} resetToken={resetToken} onSelect={focusWallet} />
           <div className="sim-frame" aria-hidden><i /><i /><i /><i /></div>
 
           <div className="hud hud-top">
             <div className="hud-title">
               <span className="live-dot" />
-              <div><b><span className="sim-tag">SIM</span>NEO-TOKYO · SECTOR 07</b><small>{focusedTower ? `TRACKING ${shortWallet(focusedTower.wallet)}` : "DRAG TO ORBIT · PINCH OR SCROLL TO ZOOM"}</small></div>
+              <div><b><span className="sim-tag">SIM</span>NEO-TOKYO · SECTOR 07</b><small>{focusedTower ? `TRACKING ${shortWallet(focusedTower.wallet)}` : "DRAG TO ORBIT · ZOOM · TAP A TOWER"}</small></div>
             </div>
             <div className="hud-buttons">
               <button className="hud-btn" onClick={resetCamera} title="Show the whole city"><Camera size={16} strokeWidth={2.6} /><span>RESET VIEW</span></button>
