@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { type Trade, tradeFromFeedEvent, tradesFromLogs } from "./decode";
+import { type HolderSnapshot, fetchHolders, httpRpcUrl } from "./holders";
 
 interface Env {
   RELAY: DurableObjectNamespace<KaijuRelay>;
@@ -26,6 +27,9 @@ const MAX_BACKOFF_MS = 60_000;
 /** Recent trades kept (and persisted) so a reload or new visitor sees the feed immediately. */
 const HISTORY_LIMIT = 150;
 const HISTORY_SAVE_DELAY_MS = 4_000;
+/** Holder list refresh while visitors are watching. */
+const HOLDERS_REFRESH_MS = 60_000;
+const MAX_HOLDERS = 1600;
 
 type Source = {
   name: SourceName;
@@ -73,12 +77,18 @@ export class KaijuRelay extends DurableObject<Env> {
   private notes: { at: string; text: string }[] = [];
   private history: Record<string, unknown>[] = [];
   private historySaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private holders: HolderSnapshot | null = null;
+  private holdersTimer: ReturnType<typeof setInterval> | null = null;
+  private holdersLoading = false;
+  private holdersError = "";
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Restore recent trades from durable storage before handling any request.
     ctx.blockConcurrencyWhile(async () => {
       try {
+        const savedHolders = await ctx.storage.get<HolderSnapshot>("holders");
+        if (savedHolders && Array.isArray(savedHolders.holders)) this.holders = savedHolders;
         const saved = await ctx.storage.get<Record<string, unknown>[]>("history");
         if (Array.isArray(saved)) {
           this.history = saved.slice(-HISTORY_LIMIT);
@@ -147,9 +157,12 @@ export class KaijuRelay extends DurableObject<Env> {
     server.addEventListener("close", () => this.handleClientDisconnect(server));
     server.addEventListener("error", () => this.handleClientDisconnect(server));
     this.send(server, { type: "status", status: this.status });
+    // Holders first (they define the city), then recent trades for the feed.
+    if (this.holders) this.send(server, { type: "holders", ...this.holders });
     if (this.history.length) this.send(server, { type: "history", trades: this.history });
 
     this.startSources();
+    this.startHolders();
     this.startHeartbeat();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -175,6 +188,16 @@ export class KaijuRelay extends DurableObject<Env> {
       clients: this.openClientCount(),
       tradesForwarded: this.tradesForwarded,
       historyStored: this.history.length,
+      holders: this.holders
+        ? {
+            count: this.holders.total,
+            sent: this.holders.holders.length,
+            lastRefresh: ago(this.holders.updatedAt),
+            topHolder: this.holders.holders[0] ? { wallet: this.holders.holders[0][0], amount: this.holders.holders[0][1] } : null,
+            excluded: this.holders.excluded,
+            error: this.holdersError || null,
+          }
+        : { count: 0, error: this.holdersError || (this.env.SOLANA_WS_URL ? "loading" : "SOLANA_WS_URL secret not set") },
       lastTrade: ago(this.lastTradeAt),
       enabledSources: this.enabledSources(),
       chainEndpoint: this.chainEndpointLabel(),
@@ -237,7 +260,42 @@ export class KaijuRelay extends DurableObject<Env> {
       this.heartbeat = null;
     }
     for (const s of this.sources.values()) this.stopSource(s);
+    if (this.holdersTimer) {
+      clearInterval(this.holdersTimer);
+      this.holdersTimer = null;
+    }
     this.status = "offline";
+  }
+
+  /* ------------------------------ holders ----------------------------- */
+
+  private startHolders(): void {
+    if (!this.env.SOLANA_WS_URL?.trim()) return;
+    const stale = !this.holders || Date.now() - this.holders.updatedAt > HOLDERS_REFRESH_MS * 0.75;
+    if (stale) void this.refreshHolders();
+    if (!this.holdersTimer) {
+      this.holdersTimer = setInterval(() => {
+        if (this.openClientCount() > 0) void this.refreshHolders();
+      }, HOLDERS_REFRESH_MS);
+    }
+  }
+
+  private async refreshHolders(): Promise<void> {
+    const rpcUrl = this.env.SOLANA_WS_URL?.trim();
+    if (!rpcUrl || this.holdersLoading) return;
+    this.holdersLoading = true;
+    try {
+      const snapshot = await fetchHolders(httpRpcUrl(rpcUrl), this.mint(), MAX_HOLDERS);
+      this.holders = snapshot;
+      this.holdersError = "";
+      this.broadcast({ type: "holders", ...snapshot });
+      await this.ctx.storage.put("holders", snapshot);
+    } catch (error) {
+      this.holdersError = String(error).slice(0, 200);
+      this.note(`holders: ${this.holdersError}`);
+    } finally {
+      this.holdersLoading = false;
+    }
   }
 
   /* ------------------------------ status ------------------------------ */

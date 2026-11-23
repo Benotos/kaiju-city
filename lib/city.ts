@@ -1,19 +1,19 @@
-import type { CityBuilding, KaijuAttack, TradeEvent, TradeImpact } from "@/lib/types";
+import type { CityBuilding, HolderScale, HolderSnapshot, KaijuAttack, TradeEvent, TradeImpact } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
 /* Layout                                                              */
 /* ------------------------------------------------------------------ */
 
 /** Spacing between the two lots inside a block. */
-export const LOT = 3.3;
+export const LOT = 2.7;
 /** Street width between blocks. */
-export const STREET = 2.6;
+export const STREET = 1.9;
 /** Distance between block centres. */
 export const BLOCK_PITCH = LOT * 2 + STREET;
 /** Blocks per side of the grid. */
-export const GRID_BLOCKS = 6;
-/** Number of lots the market can build on. */
-export const MAX_TOWERS = 84;
+export const GRID_BLOCKS = 22;
+/** Number of lots the market can build on (one per holder). */
+export const MAX_TOWERS = 1600;
 /** How long the kaiju takes to reach a target, in ms. */
 export const KAIJU_LEAD_MS = 1150;
 export const TOWER_STYLES = 7;
@@ -44,6 +44,11 @@ function buildSlots(): Slot[] {
 
 export const CITY_SLOTS: Slot[] = buildSlots();
 export const CITY_RADIUS = CITY_SLOTS[CITY_SLOTS.length - 1].ring + LOT;
+/** Radius of the first n lots, used to frame the camera and size the ground. */
+export function radiusForCount(n: number) {
+  const i = Math.max(0, Math.min(CITY_SLOTS.length - 1, n - 1));
+  return CITY_SLOTS[i].ring + LOT;
+}
 /** Street centre lines (x and z share them). */
 export const STREET_LINES: number[] = Array.from({ length: GRID_BLOCKS + 1 }, (_, i) => (i - GRID_BLOCKS / 2) * BLOCK_PITCH);
 
@@ -101,7 +106,7 @@ function makeTower(partial: Pick<CityBuilding, "id" | "wallet" | "claimed" | "sl
   return {
     x: slot.x,
     z: slot.z,
-    width: 1.75 + rand() * 0.85,
+    width: 1.5 + rand() * 0.7,
     style: Math.floor(rand() * TOWER_STYLES),
     color: NEON[Math.floor(rand() * NEON.length)],
     seed,
@@ -253,5 +258,184 @@ export function applyTradeToCity(current: CityBuilding[], trade: TradeEvent, now
       : { kind: "damage", label: `Tower hit −${pct}%`, lot: target.slot + 1 },
     attack: { id: trade.id, buildingId: target.id, x: target.x, z: target.z, top: towerTop(target), strength, destroy, at },
     focusId: target.id,
+  };
+}
+/* ------------------------------------------------------------------ */
+/* Holder city: one tower per wallet, height by balance                */
+/* ------------------------------------------------------------------ */
+
+const HOLDER_MIN_H = 2.4;
+const HOLDER_MAX_H = 30;
+
+export function scaleFromSnapshot(snapshot: HolderSnapshot): HolderScale {
+  const balances = snapshot.holders.map(([, b]) => b).filter((b) => b > 0);
+  const max = balances.length ? Math.max(...balances) : 1;
+  const min = balances.length ? Math.min(...balances) : 1;
+  return { min: Math.max(min, 1e-6), max: Math.max(max, min * 1.0001, 1e-6), supply: snapshot.supply || 1_000_000_000 };
+}
+
+/** 0 = smallest holder, 1 = largest (can exceed 1 after big buys). */
+function holderT(balance: number, scale: HolderScale) {
+  if (balance <= 0) return 0;
+  const lo = Math.log(scale.min);
+  const hi = Math.log(scale.max);
+  const t = hi - lo < 1e-9 ? 1 : (Math.log(balance) - lo) / (hi - lo);
+  return Math.max(0, Math.min(1.12, t));
+}
+
+export function heightForBalance(balance: number, scale: HolderScale) {
+  const t = holderT(balance, scale);
+  return HOLDER_MIN_H + (HOLDER_MAX_H - HOLDER_MIN_H) * Math.pow(t, 1.15);
+}
+
+function widthForBalance(balance: number, scale: HolderScale) {
+  return 1.1 + 1.1 * Math.min(1, holderT(balance, scale));
+}
+
+export function isHolderCity(buildings: CityBuilding[]) {
+  return buildings.some((b) => b.balance !== undefined);
+}
+
+function holderTower(wallet: string, balance: number, slot: number, scale: HolderScale, bornAt: number, now: number): CityBuilding {
+  return makeTower(
+    {
+      id: `h-${wallet}`,
+      wallet,
+      claimed: true,
+      slot,
+      balance,
+      height: heightForBalance(balance, scale),
+      width: widthForBalance(balance, scale),
+      seed: hashString(wallet),
+      bornAt,
+      lastActive: now - 60_000,
+      tradeCount: 0,
+    },
+    now,
+  );
+}
+
+/**
+ * Applies an on-chain holder list. The first snapshot lays the city out by
+ * rank (largest holder in the centre). Later snapshots keep every tower on
+ * its lot and only update heights, add new holders and remove sold-out ones,
+ * so the skyline never jumps around while people are watching.
+ */
+export function applyHolderSnapshot(current: CityBuilding[], snapshot: HolderSnapshot, scale: HolderScale, now = Date.now()): CityBuilding[] {
+  const holders = [...snapshot.holders].filter(([, b]) => b > 0).sort((a, b) => b[1] - a[1]).slice(0, MAX_TOWERS);
+
+  if (!isHolderCity(current)) {
+    // Fresh layout. Stagger the rise so the skyline assembles in ~2s.
+    const step = Math.min(4, 2000 / Math.max(1, holders.length));
+    return holders.map(([wallet, balance], i) => holderTower(wallet, balance, i, scale, now + i * step, now));
+  }
+
+  const balances = new Map(holders);
+  const next: CityBuilding[] = [];
+  const used = new Set<number>();
+  for (const b of current) {
+    if (b.balance === undefined) continue;
+    const balance = balances.get(b.wallet);
+    if (balance === undefined) {
+      // No longer a holder: keep fresh ruins on screen briefly, drop the rest.
+      if (b.status === "rubble" && now - b.hitAt < 20_000) {
+        next.push(b);
+        used.add(b.slot);
+      }
+      continue;
+    }
+    balances.delete(b.wallet);
+    used.add(b.slot);
+    const height = heightForBalance(balance, scale);
+    const width = widthForBalance(balance, scale);
+    const rebuilt = b.status === "rubble" && now - b.hitAt > 6000;
+    if (rebuilt) {
+      next.push({ ...b, balance, height, width, status: "standing", bornAt: now, hitAt: 0 });
+    } else if (Math.abs(b.height - height) > 0.05 || Math.abs(b.width - width) > 0.05 || b.balance !== balance) {
+      next.push({ ...b, balance, height: b.status === "rubble" ? b.height : height, width: b.status === "rubble" ? b.width : width });
+    } else {
+      next.push(b);
+    }
+  }
+  // New holders take the free lots closest to the centre.
+  let cursor = 0;
+  for (const [wallet, balance] of balances) {
+    while (cursor < CITY_SLOTS.length && used.has(cursor)) cursor++;
+    if (cursor >= CITY_SLOTS.length) break;
+    used.add(cursor);
+    next.push(holderTower(wallet, balance, cursor, scale, now, now));
+  }
+  return next;
+}
+
+/** Live trade in a holder city: buys grow the buyer's tower, sells send the kaiju after the seller's. */
+export function applyTradeToHolders(current: CityBuilding[], trade: TradeEvent, scale: HolderScale, now = Date.now()): TradeOutcome {
+  const wallet = trade.traderPublicKey;
+  const tokens = Math.max(0, trade.tokenAmount ?? 0);
+  const own = current.find((b) => b.wallet === wallet && b.balance !== undefined);
+
+  if (trade.txType === "buy") {
+    if (own) {
+      const before = own.balance ?? 0;
+      const balance = before + (tokens || before * 0.1);
+      const height = heightForBalance(balance, scale);
+      const updated: CityBuilding = {
+        ...own,
+        balance,
+        height,
+        width: widthForBalance(balance, scale),
+        status: "standing",
+        bornAt: own.status === "rubble" ? now : own.bornAt,
+        hitAt: own.status === "rubble" ? 0 : own.hitAt,
+        grewAt: now,
+        tradeCount: own.tradeCount + 1,
+        solIn: own.solIn + trade.solAmount,
+        lastSide: "buy",
+        lastActive: now,
+      };
+      const added = floors(height) - floors(own.height);
+      return {
+        buildings: current.map((b) => (b.id === own.id ? updated : b)),
+        impact: { kind: own.status === "rubble" ? "rebuild" : "grow", label: own.status === "rubble" ? "Holder rebuilt" : added > 0 ? `Tower grew +${added} floors` : "Holder added to bag", lot: own.slot + 1 },
+        attack: null,
+        focusId: own.id,
+      };
+    }
+    const used = new Set(current.map((b) => b.slot));
+    const free = CITY_SLOTS.find((s) => !used.has(s.index));
+    if (!free) return { buildings: current, impact: { kind: "grow", label: "New holder" }, attack: null, focusId: null };
+    const tower = { ...holderTower(wallet, tokens || scale.min, free.index, scale, now, now), lastActive: now, tradeCount: 1, solIn: trade.solAmount };
+    return {
+      buildings: [...current, tower],
+      impact: { kind: "rise", label: `New holder · ${floors(tower.height)} floors`, lot: free.index + 1 },
+      attack: null,
+      focusId: tower.id,
+    };
+  }
+
+  // SELL
+  const strength = Math.min(2.4, Math.max(0.7, 0.7 + Math.log2(1 + trade.solAmount) / 2));
+  const at = now + KAIJU_LEAD_MS;
+  if (!own || own.status === "rubble") {
+    return {
+      buildings: current,
+      impact: { kind: "miss", label: "Seller had no tower" },
+      attack: { id: trade.id, buildingId: null, x: 0, z: 0, top: 1, strength, destroy: false, at },
+      focusId: null,
+    };
+  }
+  const before = own.balance ?? 0;
+  const sold = tokens || before * 0.25;
+  const balance = Math.max(0, before - sold);
+  const soldOut = balance <= Math.max(before * 0.02, 1);
+  const pct = before > 0 ? Math.min(100, Math.round((sold / before) * 100)) : 100;
+  const hit: CityBuilding = soldOut
+    ? { ...own, balance: 0, status: "rubble", hitAt: at, lastSide: "sell", tradeCount: own.tradeCount + 1, lastActive: now }
+    : { ...own, balance, height: heightForBalance(balance, scale), hitAt: at, lastSide: "sell", tradeCount: own.tradeCount + 1, lastActive: now };
+  return {
+    buildings: current.map((b) => (b.id === own.id ? hit : b)),
+    impact: soldOut ? { kind: "destroy", label: "Sold out · tower destroyed", lot: own.slot + 1 } : { kind: "damage", label: `Sold ${pct}% · tower hit`, lot: own.slot + 1 },
+    attack: { id: trade.id, buildingId: own.id, x: own.x, z: own.z, top: towerTop(own), strength, destroy: soldOut, at },
+    focusId: own.id,
   };
 }

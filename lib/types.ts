@@ -50,7 +50,21 @@ export type CityBuilding = {
   /** ms timestamp when the kaiju's hit lands (0 = never hit). */
   hitAt: number;
   lastActive: number;
+  /** Token balance (holder cities only). */
+  balance?: number;
 };
+
+/** On-chain holder list sent by the relay. Balances are in whole tokens. */
+export type HolderSnapshot = {
+  updatedAt: number;
+  supply: number;
+  total: number;
+  holders: [string, number][];
+  excluded?: { owner: string; amount: number; reason: string }[];
+};
+
+/** Balance range used to turn balances into heights (log scale). */
+export type HolderScale = { min: number; max: number; supply: number };
 
 export type KaijuAttack = {
   id: string;

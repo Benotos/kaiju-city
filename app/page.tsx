@@ -7,12 +7,12 @@ import {
   Activity, ArrowDownRight, ArrowUpRight, Building2, Camera, Check, Copy, Crosshair,
   ExternalLink, Flame, Layers, LocateFixed, Radio, Search, Send, Skull, Volume2, VolumeX, X, Zap,
 } from "lucide-react";
-import type { CityBuilding, FeedItem, KaijuAttack, TradeEvent } from "@/lib/types";
-import { applyTradeToCity, floors, KAIJU_LEAD_MS, makeGenesisCity } from "@/lib/city";
+import type { CityBuilding, FeedItem, HolderScale, HolderSnapshot, KaijuAttack, TradeEvent, TradeImpact } from "@/lib/types";
+import { applyHolderSnapshot, applyTradeToCity, applyTradeToHolders, floors, KAIJU_LEAD_MS, makeGenesisCity, scaleFromSnapshot } from "@/lib/city";
 import { makeDemoTrade, shortWallet } from "@/lib/demo-data";
 import { formatSol, shortSignature, timeAgo } from "@/lib/format";
 import { playTradeSound, setTradeSoundEnabled } from "@/lib/audio";
-import { cacheKey, loadSnapshot, saveSnapshot } from "@/lib/persistence";
+import { cacheKey, type HolderInfo, loadSnapshot, saveSnapshot } from "@/lib/persistence";
 
 const CityScene = dynamic(() => import("@/components/CityScene"), {
   ssr: false,
@@ -47,6 +47,12 @@ function toTrade(payload: Record<string, unknown>): TradeEvent | null {
     timestamp: Number(payload.timestamp || Date.now()),
     source: "live",
   };
+}
+
+function pctOfSupply(balance: number | undefined, supply: number) {
+  if (!balance || !supply) return "0%";
+  const pct = (balance / supply) * 100;
+  return pct >= 10 ? `${pct.toFixed(1)}%` : pct >= 0.01 ? `${pct.toFixed(2)}%` : "<0.01%";
 }
 
 function randomId() {
@@ -140,6 +146,7 @@ export default function Home() {
   const [sellVolume, setSellVolume] = useState(0);
   const [totalTrades, setTotalTrades] = useState(0);
   const [stomps, setStomps] = useState({ destroyed: 0, damaged: 0 });
+  const [holderInfo, setHolderInfo] = useState<HolderInfo | null>(null);
   const [, setTick] = useState(0);
 
   const buildingsRef = useRef(buildings);
@@ -147,6 +154,9 @@ export default function Home() {
   const seenRef = useRef<Set<string>>(new Set());
   const seenOrderRef = useRef<string[]>([]);
   const restoredRef = useRef(false);
+  // Holder city: balance scale and the time of the last on-chain holder list.
+  const scaleRef = useRef<HolderScale | null>(null);
+  const snapshotAtRef = useRef(0);
   const soundOnRef = useRef(soundOn);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,7 +193,9 @@ export default function Home() {
 
   const applyTrade = useCallback((trade: TradeEvent) => {
     if (!rememberTrade(trade.id)) return;
-    const outcome = applyTradeToCity(buildingsRef.current, trade);
+    const outcome = scaleRef.current
+      ? applyTradeToHolders(buildingsRef.current, trade, scaleRef.current)
+      : applyTradeToCity(buildingsRef.current, trade);
     buildingsRef.current = outcome.buildings;
     setBuildings(outcome.buildings);
     setFeed((current) => [{ ...trade, impact: outcome.impact }, ...current].slice(0, FEED_LIMIT));
@@ -228,13 +240,21 @@ export default function Home() {
     const settled = Date.now() - 4000;
     for (const trade of ordered) {
       if (!rememberTrade(trade.id)) continue;
-      const outcome = applyTradeToCity(city, trade, Math.min(trade.timestamp, settled));
-      city = outcome.buildings;
-      added.push({ ...trade, impact: outcome.impact });
+      let impact: TradeImpact;
+      if (scaleRef.current && trade.timestamp <= snapshotAtRef.current) {
+        // Already counted in the on-chain holder list: show it, don't re-apply it.
+        impact = { kind: trade.txType === "buy" ? "grow" : "damage", label: trade.txType === "buy" ? "Bought" : "Sold" };
+      } else {
+        const at = Math.min(trade.timestamp, settled);
+        const outcome = scaleRef.current ? applyTradeToHolders(city, trade, scaleRef.current, at) : applyTradeToCity(city, trade, at);
+        city = outcome.buildings;
+        impact = outcome.impact;
+      }
+      added.push({ ...trade, impact });
       if (trade.txType === "buy") buy += trade.solAmount;
       else sell += trade.solAmount;
-      if (outcome.impact.kind === "destroy") destroyed += 1;
-      else if (outcome.impact.kind === "damage") damaged += 1;
+      if (impact.kind === "destroy") destroyed += 1;
+      else if (impact.kind === "damage" && impact.lot) damaged += 1;
     }
     if (!added.length) return 0;
     buildingsRef.current = city;
@@ -249,6 +269,18 @@ export default function Home() {
     setStomps((s) => ({ destroyed: s.destroyed + destroyed, damaged: s.damaged + damaged }));
     return added.length;
   }, [rememberTrade]);
+
+  /** On-chain holder list from the relay: one tower per holder, height by balance. */
+  const applyHolders = useCallback((snapshot: HolderSnapshot) => {
+    if (!Array.isArray(snapshot.holders)) return;
+    const scale = scaleFromSnapshot(snapshot);
+    scaleRef.current = scale;
+    snapshotAtRef.current = snapshot.updatedAt || Date.now();
+    const city = applyHolderSnapshot(buildingsRef.current, snapshot, scale);
+    buildingsRef.current = city;
+    setBuildings(city);
+    setHolderInfo({ total: snapshot.total, supply: snapshot.supply, updatedAt: snapshot.updatedAt, scale });
+  }, []);
 
   // Demo mode keeps the city moving until a relay URL is configured.
   useEffect(() => {
@@ -280,6 +312,11 @@ export default function Home() {
         setSellVolume(snapshot.stats.sellVolume);
         setTotalTrades(snapshot.stats.totalTrades);
         setStomps(snapshot.stats.stomps);
+        if (snapshot.holders) {
+          scaleRef.current = snapshot.holders.scale;
+          snapshotAtRef.current = snapshot.holders.updatedAt;
+          setHolderInfo(snapshot.holders);
+        }
         snapshot.seen.forEach((id) => rememberTrade(id));
         snapshot.feed.forEach((f) => rememberTrade(f.id));
       }
@@ -298,6 +335,10 @@ export default function Home() {
             const payload = JSON.parse(String(message.data));
             if (payload.type === "status") {
               setFeedStatus(payload.status === "live" ? "live" : payload.status === "connecting" ? "connecting" : "offline");
+              return;
+            }
+            if (payload.type === "holders") {
+              applyHolders(payload as HolderSnapshot);
               return;
             }
             if (payload.type === "history" && Array.isArray(payload.trades)) {
@@ -327,12 +368,12 @@ export default function Home() {
       if (retry) clearTimeout(retry);
       socket?.close();
     };
-  }, [applyTrade, ingestHistory, notify, rememberTrade]);
+  }, [applyTrade, applyHolders, ingestHistory, notify, rememberTrade]);
 
   // Save the live city in this browser so a reload never starts blank.
-  // Throttled (at most every 1.5s) and flushed when the page is hidden or closed.
-  const latestRef = useRef({ feed, stats: { buyVolume, sellVolume, totalTrades, stomps } });
-  latestRef.current = { feed, stats: { buyVolume, sellVolume, totalTrades, stomps } };
+  // Throttled (at most every 3s) and flushed when the page is hidden or closed.
+  const latestRef = useRef({ feed, stats: { buyVolume, sellVolume, totalTrades, stomps }, holderInfo });
+  latestRef.current = { feed, stats: { buyVolume, sellVolume, totalTrades, stomps }, holderInfo };
   const lastSaveRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -347,16 +388,17 @@ export default function Home() {
       buildings: buildingsRef.current,
       feed: latestRef.current.feed,
       stats: latestRef.current.stats,
+      holders: latestRef.current.holderInfo ?? undefined,
       seen: seenOrderRef.current,
     });
   }, []);
 
   useEffect(() => {
     if (!RELAY_URL || !restoredRef.current) return;
-    const wait = 1500 - (Date.now() - lastSaveRef.current);
+    const wait = 3000 - (Date.now() - lastSaveRef.current);
     if (wait <= 0) persistNow();
     else if (!saveTimerRef.current) saveTimerRef.current = setTimeout(persistNow, wait);
-  }, [buildings, feed, buyVolume, sellVolume, totalTrades, stomps, persistNow]);
+  }, [buildings, feed, buyVolume, sellVolume, totalTrades, stomps, holderInfo, persistNow]);
 
   useEffect(() => {
     if (!RELAY_URL) return;
@@ -375,7 +417,15 @@ export default function Home() {
   /* ---------------------------- derived ---------------------------- */
   const standing = useMemo(() => buildings.filter((b) => b.status === "standing"), [buildings]);
   const ruins = buildings.length - standing.length;
-  const tallest = useMemo(() => standing.reduce<CityBuilding | null>((best, b) => (!best || b.height > best.height ? b : best), null), [standing]);
+  const tallest = useMemo(() => standing.reduce<CityBuilding | null>((best, b) => (!best || (b.balance ?? b.height) > (best.balance ?? best.height) ? b : best), null), [standing]);
+  const holderMode = holderInfo !== null;
+  const holderRanks = useMemo(() => {
+    const ranks = new Map<string, number>();
+    if (!holderMode) return ranks;
+    [...buildings].filter((b) => (b.balance ?? 0) > 0).sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0)).forEach((b, i) => ranks.set(b.wallet, i + 1));
+    return ranks;
+  }, [buildings, holderMode]);
+  const supply = holderInfo?.supply ?? 1_000_000_000;
   const claimedTowers = useMemo(() => buildings.filter((b) => b.claimed), [buildings]);
   const focusedTower = useMemo(() => buildings.find((b) => b.claimed && b.wallet === focusedWallet && b.status === "standing") ?? buildings.find((b) => b.claimed && b.wallet === focusedWallet), [buildings, focusedWallet]);
   const volume = buyVolume + sellVolume;
@@ -401,7 +451,7 @@ export default function Home() {
       candidates.find((b) => b.wallet.toLowerCase().startsWith(q) && b.status === "standing") ??
       candidates.find((b) => b.wallet.toLowerCase().startsWith(q));
     if (!match) {
-      notify("No tower for that wallet yet. Buy to build one.");
+      notify(scaleRef.current ? "That wallet isn't holding this token right now." : "No tower for that wallet yet. Buy to build one.");
       return;
     }
     setFocusedWallet(match.wallet);
@@ -482,7 +532,7 @@ export default function Home() {
           <div className="hero-chips"><StatusChip status={feedStatus} /><span className="chain-chip">◎ SOLANA</span></div>
           <h1>Every trade <em>leaves a mark.</em></h1>
         </div>
-        <p className="hero-sub"><b className="buy-text">Buys build towers.</b> <b className="sell-text">Sells wake the kaiju.</b> Watch the market build and wreck the city in real time.</p>
+        <p className="hero-sub"><b className="buy-text">Buys build towers.</b> <b className="sell-text">Sells wake the kaiju.</b> One tower per holder: the bigger the bag, the taller the tower.</p>
       </section>
 
       <section className="console" id="city">
@@ -513,9 +563,19 @@ export default function Home() {
               <div className="focus-head"><Crosshair size={15} strokeWidth={2.8} /><b>{shortWallet(focusedTower.wallet)}</b><button onClick={resetCamera} aria-label="Stop tracking"><X size={14} strokeWidth={3} /></button></div>
               <dl>
                 <div><dt>STATUS</dt><dd className={focusedTower.status === "standing" ? "buy-text" : "sell-text"}>{focusedTower.status === "standing" ? "STANDING" : "RUINS"}</dd></div>
-                <div><dt>FLOORS</dt><dd>{floors(focusedTower.height)}</dd></div>
-                <div><dt>LOT</dt><dd>{String(focusedTower.slot + 1).padStart(2, "0")}</dd></div>
-                <div><dt>TRADES</dt><dd>{focusedTower.tradeCount}</dd></div>
+                {holderMode ? (
+                  <>
+                    <div><dt>RANK</dt><dd>#{holderRanks.get(focusedTower.wallet) ?? "–"}</dd></div>
+                    <div><dt>HOLDS</dt><dd>{pctOfSupply(focusedTower.balance, supply)}</dd></div>
+                    <div><dt>FLOORS</dt><dd>{floors(focusedTower.height)}</dd></div>
+                  </>
+                ) : (
+                  <>
+                    <div><dt>FLOORS</dt><dd>{floors(focusedTower.height)}</dd></div>
+                    <div><dt>LOT</dt><dd>{String(focusedTower.slot + 1).padStart(2, "0")}</dd></div>
+                    <div><dt>TRADES</dt><dd>{focusedTower.tradeCount}</dd></div>
+                  </>
+                )}
               </dl>
             </div>
           )}
@@ -549,8 +609,17 @@ export default function Home() {
         </aside>
 
         <div className="statbar">
-          <Stat label="TOWERS STANDING" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={standing.length.toLocaleString()} detail={<>{ruins} in ruins · {buildings.length} lots built</>} />
-          <Stat label="SKYLINE PEAK" tone="violet" icon={<Layers size={16} strokeWidth={2.6} />} value={tallest ? String(floors(tallest.height)) : "0"} unit="FLOORS" detail={tallest?.claimed ? <>Owned by {shortWallet(tallest.wallet)}</> : "Unclaimed landmark"} />
+          {holderMode ? (
+            <>
+              <Stat label="HOLDERS" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={(holderInfo?.total ?? standing.length).toLocaleString()} detail={<>One tower each · {ruins} sold out recently</>} />
+              <Stat label="TOP HOLDER" tone="violet" icon={<Layers size={16} strokeWidth={2.6} />} value={tallest ? pctOfSupply(tallest.balance, supply).replace("%", "") : "0"} unit="% OF SUPPLY" detail={tallest ? <>{shortWallet(tallest.wallet)} · tallest tower</> : "Loading holders…"} />
+            </>
+          ) : (
+            <>
+              <Stat label="TOWERS STANDING" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={standing.length.toLocaleString()} detail={<>{ruins} in ruins · {buildings.length} lots built</>} />
+              <Stat label="SKYLINE PEAK" tone="violet" icon={<Layers size={16} strokeWidth={2.6} />} value={tallest ? String(floors(tallest.height)) : "0"} unit="FLOORS" detail={tallest?.claimed ? <>Owned by {shortWallet(tallest.wallet)}</> : "Unclaimed landmark"} />
+            </>
+          )}
           <Stat label="MARKET VOLUME" tone="lime" icon={<Activity size={16} strokeWidth={2.6} />} value={volume.toFixed(1)} unit="SOL" detail={<><span className="buy-text">{buyShare}% buys</span> · <span className="sell-text">{100 - buyShare}% sells</span> · {totalTrades} trades tracked</>}>
             <div className="pressure"><i style={{ width: `${buyShare}%` }} /></div>
           </Stat>
@@ -569,23 +638,23 @@ export default function Home() {
             {suggestions.length > 0 && (
               <ul className="suggestions">
                 {suggestions.map((b) => (
-                  <li key={b.id}><button type="button" onClick={() => focusWallet(b.wallet)}><span className="swatch" style={{ background: b.color }} />{shortWallet(b.wallet)}<em>{b.status === "standing" ? `${floors(b.height)} FL` : "RUINS"}</em></button></li>
+                  <li key={b.id}><button type="button" onClick={() => focusWallet(b.wallet)}><span className="swatch" style={{ background: b.color }} />{shortWallet(b.wallet)}<em>{b.status !== "standing" ? "RUINS" : holderMode ? `#${holderRanks.get(b.wallet) ?? "–"} · ${pctOfSupply(b.balance, supply)}` : `${floors(b.height)} FL`}</em></button></li>
                 ))}
               </ul>
             )}
           </form>
           {sampleWallet && (
-            <button className="sample" onClick={() => focusWallet(sampleWallet)}>Try the tallest tower: <b>{shortWallet(sampleWallet)}</b> <ArrowUpRight size={13} strokeWidth={3} /></button>
+            <button className="sample" onClick={() => focusWallet(sampleWallet)}>Try the top holder: <b>{shortWallet(sampleWallet)}</b> <ArrowUpRight size={13} strokeWidth={3} /></button>
           )}
         </div>
 
         <div className="card legend">
           <div className="card-kicker"><Layers size={16} strokeWidth={2.6} />HOW THE CITY WORKS</div>
           <ul>
-            <li><span className="legend-icon li-buy"><ArrowDownRight size={16} strokeWidth={3} /></span><div><b>BUY</b><small>A new tower rises, or your tower grows taller</small></div></li>
-            <li><span className="legend-icon li-sell"><ArrowUpRight size={16} strokeWidth={3} /></span><div><b>SELL</b><small>The kaiju attacks. Big sells flatten a tower</small></div></li>
+            <li><span className="legend-icon li-buy"><ArrowDownRight size={16} strokeWidth={3} /></span><div><b>BUY</b><small>Every holder gets a tower. Buy more and yours grows taller</small></div></li>
+            <li><span className="legend-icon li-sell"><ArrowUpRight size={16} strokeWidth={3} /></span><div><b>SELL</b><small>The kaiju hits the seller&apos;s tower. Sell out and it falls</small></div></li>
             <li><span className="legend-icon li-tag">0x</span><div><b>WALLET TAG</b><small>Owner floats above the rooftop</small></div></li>
-            <li><span className="legend-icon li-ruin"><Flame size={16} strokeWidth={2.6} /></span><div><b>RUINS</b><small>Burning wreckage, rebuilt by the next buyers</small></div></li>
+            <li><span className="legend-icon li-ruin"><Flame size={16} strokeWidth={2.6} /></span><div><b>RUINS</b><small>Holders who sold out. Buy back in to rebuild</small></div></li>
           </ul>
         </div>
 

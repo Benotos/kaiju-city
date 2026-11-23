@@ -8,6 +8,7 @@ import * as THREE from "three";
 import type { CityBuilding, KaijuAttack } from "@/lib/types";
 import { CITY_RADIUS } from "@/lib/city";
 import { FocusMarker, Rubble, Tower } from "@/components/city/Towers";
+import { InstancedTowers } from "@/components/city/InstancedTowers";
 import { ImpactEffects, Kaiju, impactShake } from "@/components/city/Kaiju";
 import { Atmosphere, Backdrop, Ground, Lights, Sky, Traffic } from "@/components/city/World";
 
@@ -43,10 +44,12 @@ function CameraRig({ focus, fitRadius, resetToken }: { focus: CityBuilding | und
     const persp = camera as THREE.PerspectiveCamera;
     const aspect = size.width / Math.max(1, size.height);
     const vFov = (persp.fov * Math.PI) / 180;
-    let dist = (fitRadius / Math.tan(vFov / 2)) * 0.82;
+    // Big holder cities: frame the skyline core rather than the far edge.
+    const framed = fitRadius > 40 ? 40 + (fitRadius - 40) * 0.45 : fitRadius;
+    let dist = (framed / Math.tan(vFov / 2)) * 0.82;
     if (aspect < 1.25) dist /= Math.pow(aspect / 1.25, 0.55);
-    dist = THREE.MathUtils.clamp(dist, 26, 110);
-    const dir = new THREE.Vector3(1, 0.72, 1.2).normalize();
+    dist = THREE.MathUtils.clamp(dist, 26, 230);
+    const dir = new THREE.Vector3(1, 0.78, 1.2).normalize();
     return { pos: dir.multiplyScalar(dist), target: new THREE.Vector3(0, 4.5, 0) };
   }, [camera, size.width, size.height, fitRadius]);
 
@@ -137,6 +140,10 @@ function ShakeGroup({ children }: { children: ReactNode }) {
   return <group ref={group}>{children}</group>;
 }
 
+/** Detailed towers: the largest holders, plus whatever the viewer is looking at or just traded. */
+const HERO_COUNT = 64;
+const HERO_COUNT_LOW = 40;
+
 function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: SceneProps & { lowPower: boolean }) {
   const focused = useMemo(() => buildings.find((b) => b.claimed && b.wallet === focusedWallet && b.status === "standing"), [buildings, focusedWallet]);
 
@@ -147,34 +154,60 @@ function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: Scene
   // Round so tiny changes don't re-trigger camera flights.
   const fitRadius = Math.ceil((occupiedRadius + 8) / 4) * 4;
 
+  const { heroes, minors } = useMemo(() => {
+    const now = Date.now();
+    const rank = [...buildings].sort((a, b) => (b.balance ?? b.height) - (a.balance ?? a.height));
+    const hero = new Set<string>();
+    const limit = lowPower ? HERO_COUNT_LOW : HERO_COUNT;
+    for (const b of rank) {
+      if (hero.size >= limit) break;
+      if (b.status === "standing") hero.add(b.id);
+    }
+    if (focused) hero.add(focused.id);
+    // Recent action gets the full treatment (rise beams, kaiju warnings, tags).
+    let recent = 0;
+    for (const b of buildings) {
+      if (recent >= 24) break;
+      if (!hero.has(b.id) && (now - b.lastActive < 20_000 || b.hitAt > now - 3000)) {
+        hero.add(b.id);
+        recent++;
+      }
+    }
+    return { heroes: buildings.filter((b) => hero.has(b.id)), minors: buildings.filter((b) => !hero.has(b.id)) };
+  }, [buildings, focused, lowPower]);
+
   const labelled = useMemo(() => {
     const now = Date.now();
     const ids = new Set<string>();
-    buildings
+    heroes
       .filter((b) => b.claimed && b.status === "standing")
-      .sort((a, b) => b.height - a.height)
-      .slice(0, lowPower ? 4 : 6)
+      .sort((a, b) => (b.balance ?? b.height) - (a.balance ?? a.height))
+      .slice(0, lowPower ? 4 : 8)
       .forEach((b) => ids.add(b.id));
-    buildings.forEach((b) => { if (b.claimed && now - b.lastActive < 12000) ids.add(b.id); });
+    heroes.forEach((b) => { if (b.claimed && now - b.lastActive < 12000) ids.add(b.id); });
     if (focused) ids.add(focused.id);
     return ids;
-  }, [buildings, focused, lowPower]);
+  }, [heroes, focused, lowPower]);
+
+  // Larger cities need thinner fog so the far side stays visible.
+  const fogDensity = (lowPower ? 0.36 : 0.3) / Math.max(42, fitRadius * 1.5);
 
   return (
     <>
       <color attach="background" args={["#020812"]} />
-      <fogExp2 attach="fog" args={["#06182c", lowPower ? 0.0085 : 0.0072]} />
+      <fogExp2 attach="fog" args={["#06182c", fogDensity]} />
       <Sky />
       <Stars radius={180} depth={60} count={lowPower ? 700 : 1600} factor={4} saturation={0} fade speed={0.4} />
       <Lights />
       <ShakeGroup>
-        <Ground />
+        <Ground radius={occupiedRadius} />
         <Backdrop count={lowPower ? 80 : 170} />
-        <Traffic count={lowPower ? 36 : 80} />
-        <Atmosphere />
-        {buildings.map((b) => (
+        <Traffic count={lowPower ? 36 : 90} />
+        <Atmosphere radius={occupiedRadius} />
+        {heroes.map((b) => (
           <Tower key={b.id} building={b} focused={focused?.id === b.id} labelled={labelled.has(b.id)} />
         ))}
+        <InstancedTowers buildings={minors} />
         {buildings.filter((b) => b.status === "rubble").map((b) => <Rubble key={`rubble-${b.id}`} building={b} />)}
         <FocusMarker building={focused} />
         <Kaiju attacks={attacks} prowlRadius={Math.min(CITY_RADIUS + 4, occupiedRadius + 6)} />
@@ -188,7 +221,7 @@ function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: Scene
         zoomSpeed={0.9}
         panSpeed={0.8}
         minDistance={12}
-        maxDistance={120}
+        maxDistance={280}
         minPolarAngle={0.2}
         maxPolarAngle={1.42}
         autoRotateSpeed={0.55}

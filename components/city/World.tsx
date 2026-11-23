@@ -50,7 +50,7 @@ export function Lights() {
   );
 }
 
-export function Ground() {
+export function Ground({ radius }: { radius: number }) {
   const { streets, lanes, edges } = useMemo(() => {
     const s: THREE.BufferGeometry[] = [];
     const l: THREE.BufferGeometry[] = [];
@@ -90,7 +90,7 @@ export function Ground() {
         <meshStandardMaterial color="#040b16" roughness={0.85} metalness={0.25} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.005, 0]}>
-        <circleGeometry args={[CITY_RADIUS + 6, 64]} />
+        <circleGeometry args={[radius + 6, 96]} />
         <meshStandardMaterial color="#0a1729" roughness={0.7} metalness={0.35} />
       </mesh>
       <gridHelper args={[240, 120, "#1f5584", "#0d2541"]} position={[0, 0, 0]} />
@@ -105,7 +105,7 @@ export function Ground() {
       </mesh>
       {/* outer neon boundary */}
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.03, 0]}>
-        <ringGeometry args={[CITY_RADIUS + 5.6, CITY_RADIUS + 6, 96]} />
+        <ringGeometry args={[radius + 5.6, radius + 6, 128]} />
         <meshBasicMaterial color="#5fd4ff" toneMapped={false} transparent opacity={0.85} />
       </mesh>
     </group>
@@ -193,8 +193,8 @@ export function Backdrop({ count }: { count: number }) {
       for (let i = 0; i < half; i++) {
         const angle = rand() * Math.PI * 2;
         // Start beyond the furthest camera position so nothing blocks the view.
-        const r = 130 + rand() * 110;
-        const far = (r - 130) / 110;
+        const r = CITY_RADIUS + 50 + rand() * 110;
+        const far = (r - CITY_RADIUS - 50) / 110;
         const h = 18 + rand() * 30 + far * 40;
         const w = 6 + rand() * 9;
         dummy.position.set(Math.cos(angle) * r, h / 2, Math.sin(angle) * r);
@@ -222,15 +222,15 @@ export function Backdrop({ count }: { count: number }) {
 }
 
 /** Sweeping searchlights and a hologram crown over the city core. */
-export function Atmosphere() {
+export function Atmosphere({ radius }: { radius: number }) {
   const beams = useRef<(THREE.Group | null)[]>([]);
   const halo = useRef<THREE.Group>(null);
   const spots = useMemo(() => [
-    { x: -CITY_RADIUS * 0.8, z: CITY_RADIUS * 0.55, color: "#5fd4ff", speed: 0.35, phase: 0 },
-    { x: CITY_RADIUS * 0.85, z: CITY_RADIUS * 0.35, color: "#d8ecff", speed: -0.28, phase: 2 },
-    { x: CITY_RADIUS * 0.2, z: -CITY_RADIUS * 0.9, color: "#ffb547", speed: 0.22, phase: 4 },
-    { x: -CITY_RADIUS * 0.55, z: -CITY_RADIUS * 0.6, color: "#3f7bff", speed: -0.31, phase: 1 },
-  ], []);
+    { x: -radius * 0.8, z: radius * 0.55, color: "#5fd4ff", speed: 0.35, phase: 0 },
+    { x: radius * 0.85, z: radius * 0.35, color: "#d8ecff", speed: -0.28, phase: 2 },
+    { x: radius * 0.2, z: -radius * 0.9, color: "#ffb547", speed: 0.22, phase: 4 },
+    { x: -radius * 0.55, z: -radius * 0.6, color: "#3f7bff", speed: -0.31, phase: 1 },
+  ], [radius]);
   const beamGeo = useMemo(() => {
     const g = new THREE.ConeGeometry(4.5, 70, 24, 1, true);
     g.translate(0, -35, 0);

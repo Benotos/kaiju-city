@@ -1,4 +1,4 @@
-import type { CityBuilding, FeedItem } from "@/lib/types";
+import type { CityBuilding, FeedItem, HolderScale } from "@/lib/types";
 import { CITY_SLOTS } from "@/lib/city";
 
 /**
@@ -8,7 +8,7 @@ import { CITY_SLOTS } from "@/lib/city";
  * mode) or cleared, and the page must work the same without it.
  */
 
-const VERSION = 1;
+const VERSION = 2;
 const MAX_AGE_MS = 12 * 60 * 60 * 1000; // older snapshots are stale; start fresh
 const MAX_SEEN = 600;
 
@@ -19,7 +19,10 @@ export type CityStats = {
   stomps: { destroyed: number; damaged: number };
 };
 
+export type HolderInfo = { total: number; supply: number; updatedAt: number; scale: HolderScale };
+
 export type CitySnapshot = {
+  holders?: HolderInfo;
   buildings: CityBuilding[];
   feed: FeedItem[];
   stats: CityStats;
@@ -81,7 +84,12 @@ export function loadSnapshot(key: string): CitySnapshot | null {
       },
     };
     const seen = Array.isArray(data.seen) ? data.seen.filter((id): id is string => typeof id === "string") : [];
-    return { buildings, feed, stats, seen, savedAt: data.savedAt };
+    const h = data.holders;
+    const holders =
+      h && isNum(h.total) && isNum(h.supply) && isNum(h.updatedAt) && h.scale && isNum(h.scale.min) && isNum(h.scale.max) && isNum(h.scale.supply)
+        ? h
+        : undefined;
+    return { buildings, feed, stats, seen, holders, savedAt: data.savedAt };
   } catch {
     return null;
   }
