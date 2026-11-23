@@ -530,6 +530,7 @@ export default function Home() {
           <a href="#city">CITY</a>
           <a href="#feed">LIVE FEED</a>
           <a href="#lore">THE KAIJU</a>
+          <a href="/docs">DOCS</a>
         </nav>
         <div className="top-actions">
           {X_URL && <a className="icon-pill" href={X_URL} target="_blank" rel="noreferrer" aria-label="X">𝕏</a>}
@@ -608,11 +609,19 @@ export default function Home() {
               <div><small>RUINS</small><b className="sell-text">{ruins}</b></div>
               <div className="hide-sm"><small>LAST EVENT</small><b className={feed[0]?.txType === "sell" ? "sell-text" : "buy-text"}>{feed[0] ? feed[0].txType.toUpperCase() : "—"}</b></div>
             </div>
-            <div className="sim-buttons">
-              <span>TEST THE CITY</span>
-              <button className="sim-buy" onClick={() => simulateTrade("buy")}><ArrowDownRight size={16} strokeWidth={3} />SIM BUY</button>
-              <button className="sim-sell" onClick={() => simulateTrade("sell")}><ArrowUpRight size={16} strokeWidth={3} />SIM SELL</button>
-            </div>
+            {START_MINT ? (
+              <div className="sim-buttons">
+                <span>TRADE ON PUMP.FUN</span>
+                <a className="sim-buy" href={`https://pump.fun/coin/${START_MINT}`} target="_blank" rel="noopener noreferrer"><ArrowDownRight size={16} strokeWidth={3} />BUY</a>
+                <a className="sim-sell" href={`https://pump.fun/coin/${START_MINT}`} target="_blank" rel="noopener noreferrer"><ArrowUpRight size={16} strokeWidth={3} />SELL</a>
+              </div>
+            ) : (
+              <div className="sim-buttons">
+                <span>TEST THE CITY</span>
+                <button className="sim-buy" onClick={() => simulateTrade("buy")}><ArrowDownRight size={16} strokeWidth={3} />SIM BUY</button>
+                <button className="sim-sell" onClick={() => simulateTrade("sell")}><ArrowUpRight size={16} strokeWidth={3} />SIM SELL</button>
+              </div>
+            )}
           </div>
           {flash > 0 && <div key={flash} className="hit-vignette" aria-hidden />}
         </div>
