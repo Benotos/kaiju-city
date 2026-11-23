@@ -141,7 +141,7 @@ function ShakeGroup({ children }: { children: ReactNode }) {
 }
 
 /** Detailed towers: the largest holders, plus whatever the viewer is looking at or just traded. */
-const HERO_COUNT = 64;
+const HERO_COUNT = 90;
 const HERO_COUNT_LOW = 40;
 
 function City({ buildings, attacks, focusedWallet, resetToken, lowPower }: SceneProps & { lowPower: boolean }) {

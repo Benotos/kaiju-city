@@ -526,6 +526,10 @@ export class KaijuRelay extends DurableObject<Env> {
     source.firstToDeliver += 1;
     this.tradesForwarded += 1;
     this.lastTradeAt = Date.now();
+    // Some feeds send token amounts in raw base units (x10^6). One trade can
+    // never exceed total supply, so anything larger is rescaled.
+    const supply = this.holders?.supply || 1_000_000_000;
+    if (trade.tokenAmount > supply * 1.01) trade.tokenAmount = trade.tokenAmount / 1e6;
     const payload = {
       type: "trade",
       id: trade.key,

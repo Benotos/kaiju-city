@@ -64,7 +64,7 @@ export type HolderSnapshot = {
 };
 
 /** Balance range used to turn balances into heights (log scale). */
-export type HolderScale = { min: number; max: number; supply: number };
+export type HolderScale = { min: number; max: number; supply: number; /** Ascending balances from the last snapshot, for rank-based height. */ sorted?: number[] };
 
 export type KaijuAttack = {
   id: string;

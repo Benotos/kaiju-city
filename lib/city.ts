@@ -5,13 +5,13 @@ import type { CityBuilding, HolderScale, HolderSnapshot, KaijuAttack, TradeEvent
 /* ------------------------------------------------------------------ */
 
 /** Spacing between the two lots inside a block. */
-export const LOT = 2.7;
+export const LOT = 3.3;
 /** Street width between blocks. */
-export const STREET = 1.9;
+export const STREET = 2.8;
 /** Distance between block centres. */
 export const BLOCK_PITCH = LOT * 2 + STREET;
 /** Blocks per side of the grid. */
-export const GRID_BLOCKS = 22;
+export const GRID_BLOCKS = 26;
 /** Number of lots the market can build on (one per holder). */
 export const MAX_TOWERS = 1600;
 /** How long the kaiju takes to reach a target, in ms. */
@@ -32,7 +32,11 @@ function buildSlots(): Slot[] {
         for (let lz = 0; lz < 2; lz++) {
           const x = (bx - half) * BLOCK_PITCH + (lx - 0.5) * LOT;
           const z = (bz - half) * BLOCK_PITCH + (lz - 0.5) * LOT;
-          slots.push({ x, z, ring: Math.hypot(x, z) });
+          const ring = Math.hypot(x, z);
+          // Leave ~14% of lots outside the core as open plazas so the city breathes.
+          const plaza = ((bx * 73856093) ^ (bz * 19349663) ^ (lx * 83492791) ^ (lz * 2654435761)) >>> 0;
+          if (ring > 12 && plaza % 100 < 14) continue;
+          slots.push({ x, z, ring });
         }
       }
     }
@@ -264,32 +268,51 @@ export function applyTradeToCity(current: CityBuilding[], trade: TradeEvent, now
 /* Holder city: one tower per wallet, height by balance                */
 /* ------------------------------------------------------------------ */
 
-const HOLDER_MIN_H = 2.4;
+const HOLDER_MIN_H = 2.2;
 const HOLDER_MAX_H = 30;
 
 export function scaleFromSnapshot(snapshot: HolderSnapshot): HolderScale {
   const balances = snapshot.holders.map(([, b]) => b).filter((b) => b > 0);
   const max = balances.length ? Math.max(...balances) : 1;
   const min = balances.length ? Math.min(...balances) : 1;
-  return { min: Math.max(min, 1e-6), max: Math.max(max, min * 1.0001, 1e-6), supply: snapshot.supply || 1_000_000_000 };
+  const sorted = [...balances].sort((a, b) => a - b).slice(-MAX_TOWERS);
+  return { min: Math.max(min, 1e-6), max: Math.max(max, min * 1.0001, 1e-6), supply: snapshot.supply || 1_000_000_000, sorted };
 }
 
-/** 0 = smallest holder, 1 = largest (can exceed 1 after big buys). */
+/** Share of holders with a smaller bag (0..1), from the last snapshot. */
+function percentile(balance: number, sorted: number[]) {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid] < balance) lo = mid + 1;
+    else hi = mid;
+  }
+  return sorted.length > 1 ? lo / (sorted.length - 1) : 1;
+}
+
+/**
+ * 0 = smallest holder, 1 = largest (can exceed 1 after big buys).
+ * Blends bag size (log) with rank so heights spread across the whole city
+ * while staying strictly ordered: a bigger bag is always a taller tower.
+ */
 function holderT(balance: number, scale: HolderScale) {
   if (balance <= 0) return 0;
   const lo = Math.log(scale.min);
   const hi = Math.log(scale.max);
-  const t = hi - lo < 1e-9 ? 1 : (Math.log(balance) - lo) / (hi - lo);
+  const logT = hi - lo < 1e-9 ? 1 : (Math.log(balance) - lo) / (hi - lo);
+  const rankT = scale.sorted?.length ? Math.min(1, percentile(balance, scale.sorted)) : logT;
+  const t = 0.45 * logT + 0.55 * rankT + (balance > scale.max ? 0.08 : 0);
   return Math.max(0, Math.min(1.12, t));
 }
 
 export function heightForBalance(balance: number, scale: HolderScale) {
   const t = holderT(balance, scale);
-  return HOLDER_MIN_H + (HOLDER_MAX_H - HOLDER_MIN_H) * Math.pow(t, 1.15);
+  return HOLDER_MIN_H + (HOLDER_MAX_H - HOLDER_MIN_H) * Math.pow(t, 1.6);
 }
 
 function widthForBalance(balance: number, scale: HolderScale) {
-  return 1.1 + 1.1 * Math.min(1, holderT(balance, scale));
+  return 1.5 + 1.0 * Math.min(1, holderT(balance, scale));
 }
 
 export function isHolderCity(buildings: CityBuilding[]) {
@@ -371,7 +394,9 @@ export function applyHolderSnapshot(current: CityBuilding[], snapshot: HolderSna
 /** Live trade in a holder city: buys grow the buyer's tower, sells send the kaiju after the seller's. */
 export function applyTradeToHolders(current: CityBuilding[], trade: TradeEvent, scale: HolderScale, now = Date.now()): TradeOutcome {
   const wallet = trade.traderPublicKey;
-  const tokens = Math.max(0, trade.tokenAmount ?? 0);
+  let tokens = Math.max(0, trade.tokenAmount ?? 0);
+  // Some feeds send raw base units; a single trade can't exceed total supply.
+  if (tokens > scale.supply * 1.01) tokens /= 1e6;
   const own = current.find((b) => b.wallet === wallet && b.balance !== undefined);
 
   if (trade.txType === "buy") {
@@ -419,7 +444,7 @@ export function applyTradeToHolders(current: CityBuilding[], trade: TradeEvent, 
   if (!own || own.status === "rubble") {
     return {
       buildings: current,
-      impact: { kind: "miss", label: "Seller had no tower" },
+      impact: { kind: "miss", label: "Seller not in holder list" },
       attack: { id: trade.id, buildingId: null, x: 0, z: 0, top: 1, strength, destroy: false, at },
       focusId: null,
     };

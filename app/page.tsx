@@ -611,7 +611,7 @@ export default function Home() {
         <div className="statbar">
           {holderMode ? (
             <>
-              <Stat label="HOLDERS" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={(holderInfo?.total ?? standing.length).toLocaleString()} detail={<>One tower each · {ruins} sold out recently</>} />
+              <Stat label="HOLDERS" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={standing.length.toLocaleString()} detail={<>One tower each · {ruins} sold out recently</>} />
               <Stat label="TOP HOLDER" tone="violet" icon={<Layers size={16} strokeWidth={2.6} />} value={tallest ? pctOfSupply(tallest.balance, supply).replace("%", "") : "0"} unit="% OF SUPPLY" detail={tallest ? <>{shortWallet(tallest.wallet)} · tallest tower</> : "Loading holders…"} />
             </>
           ) : (
