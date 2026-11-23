@@ -53,8 +53,9 @@ function newSource(name: SourceName): Source {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname !== "/" && url.pathname !== "/health") return new Response("Not found", { status: 404 });
-    if (url.pathname === "/health" && request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    const routes = ["/", "/health", "/holder", "/holders"];
+    if (!routes.includes(url.pathname)) return new Response("Not found", { status: 404 });
+    if (url.pathname !== "/" && request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     const id = env.RELAY.idFromName(env.KAIJU_MINT?.trim() || "unconfigured");
     return env.RELAY.get(id).fetch(request);
   },
@@ -78,6 +79,9 @@ export class KaijuRelay extends DurableObject<Env> {
   private history: Record<string, unknown>[] = [];
   private historySaveTimer: ReturnType<typeof setTimeout> | null = null;
   private holders: HolderSnapshot | null = null;
+  /** Full ranked holder list (memory only), for lookups beyond the towers shown. */
+  private allHolders: [string, number][] = [];
+  private holderRank = new Map<string, number>();
   private holdersTimer: ReturnType<typeof setInterval> | null = null;
   private holdersLoading = false;
   private holdersError = "";
@@ -88,7 +92,10 @@ export class KaijuRelay extends DurableObject<Env> {
     ctx.blockConcurrencyWhile(async () => {
       try {
         const savedHolders = await ctx.storage.get<HolderSnapshot>("holders");
-        if (savedHolders && Array.isArray(savedHolders.holders)) this.holders = savedHolders;
+        if (savedHolders && Array.isArray(savedHolders.holders) && (!savedHolders.mint || savedHolders.mint === this.env.KAIJU_MINT?.trim())) {
+          this.holders = savedHolders;
+          this.holderRank = new Map(savedHolders.holders.map(([w], i) => [w, i]));
+        }
         const saved = await ctx.storage.get<Record<string, unknown>[]>("history");
         if (Array.isArray(saved)) {
           this.history = saved.slice(-HISTORY_LIMIT);
@@ -142,6 +149,8 @@ export class KaijuRelay extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/health") return this.health();
+    if (url.pathname === "/holder") return this.holderLookup(url.searchParams.get("wallet") ?? "");
+    if (url.pathname === "/holders") return this.holderTop();
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Stomp City live trade relay. Connect with a WebSocket or open /health.", {
@@ -165,6 +174,50 @@ export class KaijuRelay extends DurableObject<Env> {
     this.startHolders();
     this.startHeartbeat();
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private json(body: unknown): Response {
+    return Response.json(body, { headers: { "access-control-allow-origin": "*", "cache-control": "no-store" } });
+  }
+
+  /** Rank and balance for any wallet, including holders outside the towers shown. */
+  private holderLookup(wallet: string): Response {
+    wallet = wallet.trim();
+    if (!this.holders) return this.json({ ok: false, error: "holder list not loaded yet" });
+    const list = this.allHolders.length ? this.allHolders : this.holders.holders;
+    const exact = this.holderRank.get(wallet);
+    const index = exact ?? list.findIndex(([w]) => wallet.length >= 4 && w.toLowerCase().startsWith(wallet.toLowerCase()));
+    if (index === undefined || index < 0) {
+      const excluded = this.holders.excluded.find((e) => e.owner === wallet);
+      return this.json({ ok: true, holding: false, excluded: excluded ?? null, total: this.holders.total, updatedAt: this.holders.updatedAt });
+    }
+    const [w, amount] = list[index];
+    return this.json({
+      ok: true,
+      holding: true,
+      wallet: w,
+      amount,
+      rank: index + 1,
+      total: this.holders.total,
+      pctOfSupply: this.holders.supply ? (amount / this.holders.supply) * 100 : null,
+      shownAsTower: index < this.holders.holders.length,
+      updatedAt: this.holders.updatedAt,
+    });
+  }
+
+  private holderTop(): Response {
+    if (!this.holders) return this.json({ ok: false, error: "holder list not loaded yet" });
+    const supply = this.holders.supply || 1;
+    return this.json({
+      ok: true,
+      mint: this.holders.mint,
+      supply: this.holders.supply,
+      decimals: this.holders.decimals,
+      totalHolders: this.holders.total,
+      updatedAt: new Date(this.holders.updatedAt).toISOString(),
+      excluded: this.holders.excluded,
+      top: (this.allHolders.length ? this.allHolders : this.holders.holders).slice(0, 50).map(([wallet, amount], i) => ({ rank: i + 1, wallet, amount, pct: +((amount / supply) * 100).toFixed(4) })),
+    });
   }
 
   private health(): Response {
@@ -194,6 +247,7 @@ export class KaijuRelay extends DurableObject<Env> {
             sent: this.holders.holders.length,
             lastRefresh: ago(this.holders.updatedAt),
             topHolder: this.holders.holders[0] ? { wallet: this.holders.holders[0][0], amount: this.holders.holders[0][1] } : null,
+            top5: this.holders.holders.slice(0, 5).map(([w, a]) => `${w} ${a}`),
             excluded: this.holders.excluded,
             error: this.holdersError || null,
           }
@@ -285,7 +339,10 @@ export class KaijuRelay extends DurableObject<Env> {
     if (!rpcUrl || this.holdersLoading) return;
     this.holdersLoading = true;
     try {
-      const snapshot = await fetchHolders(httpRpcUrl(rpcUrl), this.mint(), MAX_HOLDERS);
+      const fetched = await fetchHolders(httpRpcUrl(rpcUrl), this.mint(), MAX_HOLDERS);
+      const { all, ...snapshot } = fetched;
+      this.allHolders = all ?? snapshot.holders;
+      this.holderRank = new Map(this.allHolders.map(([w], i) => [w, i]));
       this.holders = snapshot;
       this.holdersError = "";
       this.broadcast({ type: "holders", ...snapshot });

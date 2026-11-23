@@ -57,6 +57,7 @@ export type CityBuilding = {
 /** On-chain holder list sent by the relay. Balances are in whole tokens. */
 export type HolderSnapshot = {
   updatedAt: number;
+  mint?: string;
   supply: number;
   total: number;
   holders: [string, number][];

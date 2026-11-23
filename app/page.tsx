@@ -24,6 +24,8 @@ const RELAY_URL = process.env.NEXT_PUBLIC_TRADE_RELAY_URL || "";
 const X_URL = process.env.NEXT_PUBLIC_X_URL || "";
 const TELEGRAM_URL = process.env.NEXT_PUBLIC_TELEGRAM_URL || "";
 const FEED_LIMIT = 24;
+/** The relay's HTTP address (same host as its WebSocket), for holder lookups. */
+const RELAY_HTTP = RELAY_URL.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:").replace(/\/+$/, "");
 const MAX_SEEN_IDS = 600;
 /** Browser cache scope: one saved city per token. */
 const CACHE_KEY = cacheKey(START_MINT || RELAY_URL || "demo");
@@ -156,6 +158,7 @@ export default function Home() {
   const restoredRef = useRef(false);
   // Holder city: balance scale and the time of the last on-chain holder list.
   const scaleRef = useRef<HolderScale | null>(null);
+  const holderMintRef = useRef<string | null>(null);
   const snapshotAtRef = useRef(0);
   const soundOnRef = useRef(soundOn);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -276,10 +279,13 @@ export default function Home() {
     const scale = scaleFromSnapshot(snapshot);
     scaleRef.current = scale;
     snapshotAtRef.current = snapshot.updatedAt || Date.now();
-    const city = applyHolderSnapshot(buildingsRef.current, snapshot, scale);
+    // A different token than the city on screen (or in this browser's cache): start a fresh city.
+    const switched = Boolean(snapshot.mint && holderMintRef.current && holderMintRef.current !== snapshot.mint);
+    if (snapshot.mint) holderMintRef.current = snapshot.mint;
+    const city = applyHolderSnapshot(switched ? [] : buildingsRef.current, snapshot, scale);
     buildingsRef.current = city;
     setBuildings(city);
-    setHolderInfo({ total: snapshot.total, supply: snapshot.supply, updatedAt: snapshot.updatedAt, scale });
+    setHolderInfo({ total: snapshot.total, supply: snapshot.supply, updatedAt: snapshot.updatedAt, scale, mint: snapshot.mint });
   }, []);
 
   // Demo mode keeps the city moving until a relay URL is configured.
@@ -313,6 +319,7 @@ export default function Home() {
         setTotalTrades(snapshot.stats.totalTrades);
         setStomps(snapshot.stats.stomps);
         if (snapshot.holders) {
+          holderMintRef.current = snapshot.holders.mint ?? null;
           scaleRef.current = snapshot.holders.scale;
           snapshotAtRef.current = snapshot.holders.updatedAt;
           setHolderInfo(snapshot.holders);
@@ -451,6 +458,21 @@ export default function Home() {
       candidates.find((b) => b.wallet.toLowerCase().startsWith(q) && b.status === "standing") ??
       candidates.find((b) => b.wallet.toLowerCase().startsWith(q));
     if (!match) {
+      if (scaleRef.current && RELAY_HTTP && q.length >= 4) {
+        // Not in the city on screen: ask the relay, which knows every holder.
+        notify("Checking the holder list…");
+        fetch(`${RELAY_HTTP}/holder?wallet=${encodeURIComponent(query.trim())}`)
+          .then((r) => r.json())
+          .then((info: { ok?: boolean; holding?: boolean; rank?: number; total?: number; pctOfSupply?: number | null; shownAsTower?: boolean; excluded?: { reason: string } | null; wallet?: string; error?: string }) => {
+            if (!info.ok) return notify(info.error ? `Holder list: ${info.error}` : "Holder list unavailable");
+            if (info.excluded) return notify(`That address is excluded: ${info.excluded.reason}`);
+            if (!info.holding) return notify("That wallet isn't holding this token right now.");
+            const pct = info.pctOfSupply == null ? "" : ` · ${info.pctOfSupply >= 0.01 ? info.pctOfSupply.toFixed(2) : "<0.01"}%`;
+            notify(info.shownAsTower ? `Rank #${info.rank}${pct}. Loading its tower…` : `Holder rank #${info.rank} of ${info.total}${pct}`);
+          })
+          .catch(() => notify("Couldn't reach the holder list"));
+        return;
+      }
       notify(scaleRef.current ? "That wallet isn't holding this token right now." : "No tower for that wallet yet. Buy to build one.");
       return;
     }
@@ -611,7 +633,7 @@ export default function Home() {
         <div className="statbar">
           {holderMode ? (
             <>
-              <Stat label="HOLDERS" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={standing.length.toLocaleString()} detail={<>One tower each · {ruins} sold out recently</>} />
+              <Stat label="HOLDERS" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={standing.length.toLocaleString()} detail={holderInfo && holderInfo.total > standing.length ? <>Top {standing.length.toLocaleString()} of {holderInfo.total.toLocaleString()} holders shown</> : <>One tower each · {ruins} sold out recently</>} />
               <Stat label="TOP HOLDER" tone="violet" icon={<Layers size={16} strokeWidth={2.6} />} value={tallest ? pctOfSupply(tallest.balance, supply).replace("%", "") : "0"} unit="% OF SUPPLY" detail={tallest ? <>{shortWallet(tallest.wallet)} · tallest tower</> : "Loading holders…"} />
             </>
           ) : (

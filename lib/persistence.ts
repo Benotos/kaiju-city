@@ -19,7 +19,7 @@ export type CityStats = {
   stomps: { destroyed: number; damaged: number };
 };
 
-export type HolderInfo = { total: number; supply: number; updatedAt: number; scale: HolderScale };
+export type HolderInfo = { total: number; supply: number; updatedAt: number; scale: HolderScale; mint?: string };
 
 export type CitySnapshot = {
   holders?: HolderInfo;
