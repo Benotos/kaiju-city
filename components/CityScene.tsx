@@ -217,7 +217,7 @@ class SceneBoundary extends Component<{ children: ReactNode; onRetry: () => void
     return { error: error.message || "Unknown rendering error" };
   }
   componentDidCatch(error: Error) {
-    console.error("[kaiju-city] 3D scene crashed:", error);
+    console.error("[stomp-city] 3D scene crashed:", error);
   }
   render() {
     if (this.state.error) {
@@ -250,7 +250,7 @@ export default function CityScene(props: SceneProps) {
     return (
       <div className="scene-message">
         <b>WEBGL IS OFF IN THIS BROWSER</b>
-        <span>Kaiju City needs WebGL. Turn on hardware acceleration, or open the site in Chrome, Safari or Firefox.</span>
+        <span>Stomp City needs WebGL. Turn on hardware acceleration, or open the site in Chrome, Safari or Firefox.</span>
       </div>
     );
   }

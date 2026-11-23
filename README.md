@@ -1,4 +1,4 @@
-# Kaiju City
+# Stomp City
 
 A browser-based 3D Solana trading city. Buys add wallet-tagged towers; sells trigger the kaiju to flatten a tower. The interface runs in demo mode out of the box and can connect to a separate PumpPortal relay for real token trades.
 

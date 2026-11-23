@@ -5,8 +5,8 @@ import "@fontsource/instrument-serif/400-italic.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Kaiju City — The market is alive",
-  description: "A cinematic 3D city built and wrecked by live Solana trades.",
+  title: "Stomp City — The market is alive",
+  description: "Stomp City: a cinematic 3D city built and wrecked by live Solana trades. Buys raise towers. Sells wake the kaiju.",
   icons: { icon: "/icon.svg" },
 };
 

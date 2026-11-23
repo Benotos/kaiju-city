@@ -1,5 +1,5 @@
 /**
- * Decoders that turn raw feed messages into Kaiju City trades.
+ * Decoders that turn raw feed messages into Stomp City trades.
  *
  * On-chain layouts come from pump.fun's official IDLs
  * (@pump-fun/pump-sdk `pump.json`, @pump-fun/pump-swap-sdk `pump_amm.json`).

@@ -12,6 +12,7 @@ import { applyTradeToCity, floors, KAIJU_LEAD_MS, makeGenesisCity } from "@/lib/
 import { makeDemoTrade, shortWallet } from "@/lib/demo-data";
 import { formatSol, shortSignature, timeAgo } from "@/lib/format";
 import { playTradeSound, setTradeSoundEnabled } from "@/lib/audio";
+import { cacheKey, loadSnapshot, saveSnapshot } from "@/lib/persistence";
 
 const CityScene = dynamic(() => import("@/components/CityScene"), {
   ssr: false,
@@ -23,9 +24,30 @@ const RELAY_URL = process.env.NEXT_PUBLIC_TRADE_RELAY_URL || "";
 const X_URL = process.env.NEXT_PUBLIC_X_URL || "";
 const TELEGRAM_URL = process.env.NEXT_PUBLIC_TELEGRAM_URL || "";
 const FEED_LIMIT = 24;
+const MAX_SEEN_IDS = 600;
+/** Browser cache scope: one saved city per token. */
+const CACHE_KEY = cacheKey(START_MINT || RELAY_URL || "demo");
 
 type FeedStatus = "demo" | "connecting" | "live" | "offline";
 type Banner = { key: number; tone: "attack" | "build"; title: string; sub: string };
+
+/** Normalizes a relay trade message; returns null for anything malformed. */
+function toTrade(payload: Record<string, unknown>): TradeEvent | null {
+  if (payload.txType !== "buy" && payload.txType !== "sell") return null;
+  const solAmount = Number(payload.solAmount || 0);
+  if (!Number.isFinite(solAmount) || solAmount <= 0) return null;
+  return {
+    id: typeof payload.id === "string" && payload.id ? payload.id : randomId(),
+    txType: payload.txType,
+    traderPublicKey: typeof payload.traderPublicKey === "string" && payload.traderPublicKey ? payload.traderPublicKey : "unknown-wallet",
+    solAmount,
+    tokenAmount: Number(payload.tokenAmount || 0),
+    marketCapSol: Number(payload.marketCapSol || 0),
+    signature: typeof payload.signature === "string" ? payload.signature : undefined,
+    timestamp: Number(payload.timestamp || Date.now()),
+    source: "live",
+  };
+}
 
 function randomId() {
   return `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -75,7 +97,7 @@ function FeedRow({ item, onFocus }: { item: FeedItem; onFocus: (wallet: string) 
           {item.impact.kind === "destroy" ? <Skull size={13} /> : item.impact.kind === "damage" ? <Flame size={13} /> : <Building2 size={13} />}
           {item.impact.label}{item.impact.lot ? <em> · LOT {String(item.impact.lot).padStart(2, "0")}</em> : null}
         </div>
-        <div className="feed-meta">{shortSignature(item.signature)} · {timeAgo(item.timestamp)} <span className={`feed-src src-${item.source}`}>{item.source === "live" ? "LIVE" : "DEMO"}</span></div>
+        <div className="feed-meta">{item.signature && item.source === "live" ? <a href={`https://solscan.io/tx/${item.signature}`} target="_blank" rel="noreferrer" title="View on Solscan">{shortSignature(item.signature)}</a> : item.source === "live" ? "on-chain" : "simulated"} · {timeAgo(item.timestamp)} <span className={`feed-src src-${item.source}`}>{item.source === "live" ? "LIVE" : "DEMO"}</span></div>
       </div>
     </li>
   );
@@ -121,6 +143,10 @@ export default function Home() {
   const [, setTick] = useState(0);
 
   const buildingsRef = useRef(buildings);
+  // Trade ids already applied (live, replayed or restored), so nothing counts twice.
+  const seenRef = useRef<Set<string>>(new Set());
+  const seenOrderRef = useRef<string[]>([]);
+  const restoredRef = useRef(false);
   const soundOnRef = useRef(soundOn);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -144,7 +170,19 @@ export default function Home() {
     bannerTimer.current = setTimeout(() => setBanner(null), 2300);
   }, []);
 
+  const rememberTrade = useCallback((id: string) => {
+    if (seenRef.current.has(id)) return false;
+    seenRef.current.add(id);
+    seenOrderRef.current.push(id);
+    if (seenOrderRef.current.length > MAX_SEEN_IDS) {
+      const old = seenOrderRef.current.shift();
+      if (old) seenRef.current.delete(old);
+    }
+    return true;
+  }, []);
+
   const applyTrade = useCallback((trade: TradeEvent) => {
+    if (!rememberTrade(trade.id)) return;
     const outcome = applyTradeToCity(buildingsRef.current, trade);
     buildingsRef.current = outcome.buildings;
     setBuildings(outcome.buildings);
@@ -172,7 +210,45 @@ export default function Home() {
         }, KAIJU_LEAD_MS);
       }
     }
-  }, [showBanner]);
+  }, [showBanner, rememberTrade]);
+
+  /**
+   * Replays trades that happened while this visitor wasn't watching (sent by
+   * the relay on connect). Applied in one batch, silently: no banners, sounds
+   * or kaiju runs, and towers appear already built or already in ruins.
+   */
+  const ingestHistory = useCallback((trades: TradeEvent[]) => {
+    let city = buildingsRef.current;
+    const added: FeedItem[] = [];
+    let buy = 0;
+    let sell = 0;
+    let destroyed = 0;
+    let damaged = 0;
+    const ordered = [...trades].sort((a, b) => a.timestamp - b.timestamp);
+    const settled = Date.now() - 4000;
+    for (const trade of ordered) {
+      if (!rememberTrade(trade.id)) continue;
+      const outcome = applyTradeToCity(city, trade, Math.min(trade.timestamp, settled));
+      city = outcome.buildings;
+      added.push({ ...trade, impact: outcome.impact });
+      if (trade.txType === "buy") buy += trade.solAmount;
+      else sell += trade.solAmount;
+      if (outcome.impact.kind === "destroy") destroyed += 1;
+      else if (outcome.impact.kind === "damage") damaged += 1;
+    }
+    if (!added.length) return 0;
+    buildingsRef.current = city;
+    setBuildings(city);
+    setFeed((current) => {
+      const ids = new Set(current.map((f) => f.id));
+      return [...current, ...added.filter((f) => !ids.has(f.id))].sort((a, b) => b.timestamp - a.timestamp).slice(0, FEED_LIMIT);
+    });
+    setTotalTrades((v) => v + added.length);
+    setBuyVolume((v) => v + buy);
+    setSellVolume((v) => v + sell);
+    setStomps((s) => ({ destroyed: s.destroyed + destroyed, damaged: s.damaged + damaged }));
+    return added.length;
+  }, [rememberTrade]);
 
   // Demo mode keeps the city moving until a relay URL is configured.
   useEffect(() => {
@@ -191,6 +267,24 @@ export default function Home() {
   // One browser connection to the relay; API credentials never reach this client.
   useEffect(() => {
     if (!RELAY_URL) return;
+
+    // Paint the last known city instantly, before the relay answers.
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      const snapshot = loadSnapshot(CACHE_KEY);
+      if (snapshot) {
+        buildingsRef.current = snapshot.buildings;
+        setBuildings(snapshot.buildings);
+        setFeed(snapshot.feed.slice(0, FEED_LIMIT));
+        setBuyVolume(snapshot.stats.buyVolume);
+        setSellVolume(snapshot.stats.sellVolume);
+        setTotalTrades(snapshot.stats.totalTrades);
+        setStomps(snapshot.stats.stomps);
+        snapshot.seen.forEach((id) => rememberTrade(id));
+        snapshot.feed.forEach((f) => rememberTrade(f.id));
+      }
+    }
+
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -206,18 +300,15 @@ export default function Home() {
               setFeedStatus(payload.status === "live" ? "live" : payload.status === "connecting" ? "connecting" : "offline");
               return;
             }
-            if (payload.type === "trade" && (payload.txType === "buy" || payload.txType === "sell")) {
-              applyTrade({
-                id: payload.id || randomId(),
-                txType: payload.txType,
-                traderPublicKey: payload.traderPublicKey || "unknown-wallet",
-                solAmount: Number(payload.solAmount || 0),
-                tokenAmount: Number(payload.tokenAmount || 0),
-                marketCapSol: Number(payload.marketCapSol || 0),
-                signature: payload.signature,
-                timestamp: Number(payload.timestamp || Date.now()),
-                source: "live",
-              });
+            if (payload.type === "history" && Array.isArray(payload.trades)) {
+              const trades = (payload.trades as Record<string, unknown>[]).map(toTrade).filter((t): t is TradeEvent => t !== null);
+              const caughtUp = ingestHistory(trades);
+              if (caughtUp > 0) notify(`Caught up on ${caughtUp} recent trade${caughtUp === 1 ? "" : "s"}`);
+              return;
+            }
+            if (payload.type === "trade") {
+              const trade = toTrade(payload);
+              if (trade) applyTrade(trade);
             }
           } catch { /* ignore malformed relay messages */ }
         };
@@ -236,7 +327,50 @@ export default function Home() {
       if (retry) clearTimeout(retry);
       socket?.close();
     };
-  }, [applyTrade]);
+  }, [applyTrade, ingestHistory, notify, rememberTrade]);
+
+  // Save the live city in this browser so a reload never starts blank.
+  // Throttled (at most every 1.5s) and flushed when the page is hidden or closed.
+  const latestRef = useRef({ feed, stats: { buyVolume, sellVolume, totalTrades, stomps } });
+  latestRef.current = { feed, stats: { buyVolume, sellVolume, totalTrades, stomps } };
+  const lastSaveRef = useRef(0);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistNow = useCallback(() => {
+    if (!RELAY_URL || !restoredRef.current) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    lastSaveRef.current = Date.now();
+    saveSnapshot(CACHE_KEY, {
+      buildings: buildingsRef.current,
+      feed: latestRef.current.feed,
+      stats: latestRef.current.stats,
+      seen: seenOrderRef.current,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!RELAY_URL || !restoredRef.current) return;
+    const wait = 1500 - (Date.now() - lastSaveRef.current);
+    if (wait <= 0) persistNow();
+    else if (!saveTimerRef.current) saveTimerRef.current = setTimeout(persistNow, wait);
+  }, [buildings, feed, buyVolume, sellVolume, totalTrades, stomps, persistNow]);
+
+  useEffect(() => {
+    if (!RELAY_URL) return;
+    const onHide = () => persistNow();
+    const onVisibility = () => { if (document.visibilityState === "hidden") persistNow(); };
+    window.addEventListener("pagehide", onHide);
+    window.addEventListener("beforeunload", onHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("beforeunload", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [persistNow]);
 
   /* ---------------------------- derived ---------------------------- */
   const standing = useMemo(() => buildings.filter((b) => b.status === "standing"), [buildings]);
@@ -316,9 +450,9 @@ export default function Home() {
       <div className="backdrop-glow" aria-hidden />
       <header className="topbar">
         <div className="topbar-inner">
-        <a className="brand" href="#city" aria-label="Kaiju City home">
+        <a className="brand" href="#city" aria-label="Stomp City home">
           <BrandMark />
-          <span className="brand-type"><strong>KAIJU<i>/</i>CITY</strong><small>THE MARKET IS ALIVE</small></span>
+          <span className="brand-type"><strong>STOMP<i>/</i>CITY</strong><small>THE MARKET IS ALIVE</small></span>
         </a>
         <nav className="topnav" aria-label="Main navigation">
           <a href="#city">CITY</a>
@@ -417,7 +551,7 @@ export default function Home() {
         <div className="statbar">
           <Stat label="TOWERS STANDING" tone="cyan" icon={<Building2 size={16} strokeWidth={2.6} />} value={standing.length.toLocaleString()} detail={<>{ruins} in ruins · {buildings.length} lots built</>} />
           <Stat label="SKYLINE PEAK" tone="violet" icon={<Layers size={16} strokeWidth={2.6} />} value={tallest ? String(floors(tallest.height)) : "0"} unit="FLOORS" detail={tallest?.claimed ? <>Owned by {shortWallet(tallest.wallet)}</> : "Unclaimed landmark"} />
-          <Stat label="SESSION VOLUME" tone="lime" icon={<Activity size={16} strokeWidth={2.6} />} value={volume.toFixed(1)} unit="SOL" detail={<><span className="buy-text">{buyShare}% buys</span> · <span className="sell-text">{100 - buyShare}% sells</span> · {totalTrades} trades</>}>
+          <Stat label="MARKET VOLUME" tone="lime" icon={<Activity size={16} strokeWidth={2.6} />} value={volume.toFixed(1)} unit="SOL" detail={<><span className="buy-text">{buyShare}% buys</span> · <span className="sell-text">{100 - buyShare}% sells</span> · {totalTrades} trades tracked</>}>
             <div className="pressure"><i style={{ width: `${buyShare}%` }} /></div>
           </Stat>
           <Stat label="KAIJU STOMPS" tone="red" icon={<Flame size={16} strokeWidth={2.6} />} value={stompTotal.toLocaleString()} detail={<>{stomps.destroyed} destroyed · {stomps.damaged} damaged</>} />
@@ -470,7 +604,7 @@ export default function Home() {
       </section>
 
       <footer className="footer">
-        <div className="brand"><BrandMark /><span className="brand-type"><strong>KAIJU<i>/</i>CITY</strong><small>BUILT BY THE MARKET</small></span></div>
+        <div className="brand"><BrandMark /><span className="brand-type"><strong>STOMP<i>/</i>CITY</strong><small>BUILT BY THE MARKET</small></span></div>
         <p>The city is a visualization of trades. It is not a price, balance or PnL feed.</p>
         <span className="version">V0.2 · PROTOTYPE</span>
       </footer>

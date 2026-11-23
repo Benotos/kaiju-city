@@ -23,6 +23,9 @@ const MAX_SEEN = 5_000;
 const HEARTBEAT_MS = 25_000;
 const MAX_NOTES = 12;
 const MAX_BACKOFF_MS = 60_000;
+/** Recent trades kept (and persisted) so a reload or new visitor sees the feed immediately. */
+const HISTORY_LIMIT = 150;
+const HISTORY_SAVE_DELAY_MS = 4_000;
 
 type Source = {
   name: SourceName;
@@ -68,6 +71,45 @@ export class KaijuRelay extends DurableObject<Env> {
   private tradesForwarded = 0;
   private lastTradeAt = 0;
   private notes: { at: string; text: string }[] = [];
+  private history: Record<string, unknown>[] = [];
+  private historySaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Restore recent trades from durable storage before handling any request.
+    ctx.blockConcurrencyWhile(async () => {
+      try {
+        const saved = await ctx.storage.get<Record<string, unknown>[]>("history");
+        if (Array.isArray(saved)) {
+          this.history = saved.slice(-HISTORY_LIMIT);
+          for (const t of this.history) if (typeof t.id === "string") this.remember(t.id);
+        }
+      } catch (error) {
+        console.warn("[relay] Could not load trade history:", error);
+      }
+    });
+  }
+
+  private remember(key: string): boolean {
+    if (this.seen.has(key)) return false;
+    this.seen.add(key);
+    this.seenOrder.push(key);
+    if (this.seenOrder.length > MAX_SEEN) {
+      const old = this.seenOrder.shift();
+      if (old) this.seen.delete(old);
+    }
+    return true;
+  }
+
+  private recordHistory(payload: Record<string, unknown>): void {
+    this.history.push(payload);
+    if (this.history.length > HISTORY_LIMIT) this.history.splice(0, this.history.length - HISTORY_LIMIT);
+    if (this.historySaveTimer) return;
+    this.historySaveTimer = setTimeout(() => {
+      this.historySaveTimer = null;
+      this.ctx.storage.put("history", this.history).catch((error) => console.warn("[relay] Could not save history:", error));
+    }, HISTORY_SAVE_DELAY_MS);
+  }
 
   private mint(): string {
     return this.env.KAIJU_MINT?.trim() || "";
@@ -92,7 +134,7 @@ export class KaijuRelay extends DurableObject<Env> {
     if (url.pathname === "/health") return this.health();
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-      return new Response("Kaiju City live trade relay. Connect with a WebSocket or open /health.", {
+      return new Response("Stomp City live trade relay. Connect with a WebSocket or open /health.", {
         status: 426,
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
@@ -105,6 +147,7 @@ export class KaijuRelay extends DurableObject<Env> {
     server.addEventListener("close", () => this.handleClientDisconnect(server));
     server.addEventListener("error", () => this.handleClientDisconnect(server));
     this.send(server, { type: "status", status: this.status });
+    if (this.history.length) this.send(server, { type: "history", trades: this.history });
 
     this.startSources();
     this.startHeartbeat();
@@ -131,11 +174,24 @@ export class KaijuRelay extends DurableObject<Env> {
       mint: this.mint() || null,
       clients: this.openClientCount(),
       tradesForwarded: this.tradesForwarded,
+      historyStored: this.history.length,
       lastTrade: ago(this.lastTradeAt),
       enabledSources: this.enabledSources(),
+      chainEndpoint: this.chainEndpointLabel(),
       sources,
       notes: this.notes,
     });
+  }
+
+  private chainEndpointLabel(): string {
+    const raw = this.env.SOLANA_WS_URL?.trim();
+    if (!raw) return "public Solana RPC (no SOLANA_WS_URL secret set)";
+    try {
+      const url = new URL(raw);
+      return `custom: ${url.protocol}//${url.host}${url.searchParams.has("api-key") ? " (api-key present)" : " (no api-key in URL)"}`;
+    } catch {
+      return "SOLANA_WS_URL is set but is not a valid URL - re-enter it";
+    }
   }
 
   private openClientCount(): number {
@@ -248,47 +304,47 @@ export class KaijuRelay extends DurableObject<Env> {
     }
     source.status = "connecting";
     this.refreshStatus();
+    this.dial(source).catch((error) => {
+      source.lastError = `connect failed: ${String(error).slice(0, 160)}`;
+      this.note(`${source.name}: ${source.lastError}`);
+      this.retry(source);
+    });
+  }
 
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(this.sourceUrl(source.name));
-    } catch (error) {
-      source.lastError = `Could not open socket: ${String(error)}`;
+  /**
+   * Opens the upstream socket with fetch() + Upgrade so a refused connection
+   * reports the provider's real HTTP status (401, 403, 429, 502...) instead
+   * of a generic "failed to establish" error.
+   */
+  private async dial(source: Source): Promise<void> {
+    const url = this.sourceUrl(source.name).replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+    const response = await fetch(url, { headers: { Upgrade: "websocket", "User-Agent": "stomp-city-relay/1.0" } });
+    const socket = response.webSocket;
+    if (!socket) {
+      let body = "";
+      try {
+        body = (await response.text()).replace(/\s+/g, " ").slice(0, 140);
+      } catch {
+        /* ignore */
+      }
+      source.lastError = `refused: HTTP ${response.status}${body ? ` ${body}` : ""}`;
+      this.note(`${source.name}: ${source.lastError}`);
       this.retry(source);
       return;
     }
+    if (this.openClientCount() === 0) {
+      socket.accept();
+      socket.close(1000, "no viewers");
+      source.status = "idle";
+      return;
+    }
+    socket.accept();
     source.socket = socket;
-
-    socket.addEventListener("open", () => {
-      if (source.socket !== socket) {
-        socket.close(1000, "superseded");
-        return;
-      }
-      source.status = "open";
-      source.attempt = 0;
-      source.connectedAt = Date.now();
-      source.lastError = "";
-      this.note(`${source.name}: connected`);
-      try {
-        socket.send(this.subscribeMessage(source.name));
-      } catch (error) {
-        source.lastError = `Subscribe failed: ${String(error)}`;
-        socket.close(1011, "subscribe failed");
-        return;
-      }
-      // Some RPCs drop idle sockets; a harmless request every 30s keeps it open.
-      if (source.name === "chain") {
-        let n = 1000;
-        source.keepAlive = setInterval(() => {
-          try {
-            socket.send(JSON.stringify({ jsonrpc: "2.0", id: n++, method: "getHealth" }));
-          } catch {
-            /* close handler will retry */
-          }
-        }, 30_000);
-      }
-      this.refreshStatus();
-    });
+    source.status = "open";
+    source.attempt = 0;
+    source.connectedAt = Date.now();
+    source.lastError = "";
+    this.note(`${source.name}: connected`);
 
     socket.addEventListener("message", (message: MessageEvent) => {
       if (source.socket !== socket) return;
@@ -296,7 +352,6 @@ export class KaijuRelay extends DurableObject<Env> {
       source.lastMessageAt = Date.now();
       this.handleMessage(source, message.data);
     });
-
     socket.addEventListener("error", () => {
       try {
         socket.close(1011, "error");
@@ -304,7 +359,6 @@ export class KaijuRelay extends DurableObject<Env> {
         /* already closing */
       }
     });
-
     socket.addEventListener("close", (event: CloseEvent) => {
       if (source.socket !== socket) return;
       source.socket = null;
@@ -317,6 +371,26 @@ export class KaijuRelay extends DurableObject<Env> {
       this.note(`${source.name}: ${source.lastError}`);
       this.retry(source);
     });
+
+    try {
+      socket.send(this.subscribeMessage(source.name));
+    } catch (error) {
+      source.lastError = `subscribe failed: ${String(error)}`;
+      socket.close(1011, "subscribe failed");
+      return;
+    }
+    // Some RPCs drop idle sockets; a harmless request every 30s keeps it open.
+    if (source.name === "chain") {
+      let n = 1000;
+      source.keepAlive = setInterval(() => {
+        try {
+          socket.send(JSON.stringify({ jsonrpc: "2.0", id: n++, method: "getHealth" }));
+        } catch {
+          /* close handler will retry */
+        }
+      }, 30_000);
+    }
+    this.refreshStatus();
   }
 
   private retry(source: Source): void {
@@ -390,17 +464,11 @@ export class KaijuRelay extends DurableObject<Env> {
 
   private forward(source: Source, trade: Trade): void {
     source.trades += 1;
-    if (this.seen.has(trade.key)) return;
-    this.seen.add(trade.key);
-    this.seenOrder.push(trade.key);
-    if (this.seenOrder.length > MAX_SEEN) {
-      const old = this.seenOrder.shift();
-      if (old) this.seen.delete(old);
-    }
+    if (!this.remember(trade.key)) return;
     source.firstToDeliver += 1;
     this.tradesForwarded += 1;
     this.lastTradeAt = Date.now();
-    this.broadcast({
+    const payload = {
       type: "trade",
       id: trade.key,
       txType: trade.txType,
@@ -411,6 +479,8 @@ export class KaijuRelay extends DurableObject<Env> {
       signature: trade.signature,
       timestamp: trade.timestamp,
       provider: source.name,
-    });
+    };
+    this.recordHistory(payload);
+    this.broadcast(payload);
   }
 }
