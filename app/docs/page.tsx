@@ -229,7 +229,7 @@ export default function Docs() {
               </div>
               <div>
                 <dt>Contract address</dt>
-                <dd className="mono">{MINT || "[CONTRACT ADDRESS]"}</dd>
+                <dd className="mono">{MINT || "Announced at launch"}</dd>
               </div>
               <div>
                 <dt>Total supply</dt>

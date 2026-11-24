@@ -502,7 +502,7 @@ export default function Home() {
   };
 
   const copyMint = async () => {
-    if (!START_MINT) { notify("Contract address not set yet"); return; }
+    if (!START_MINT) { notify("Contract address drops at launch"); return; }
     try { await navigator.clipboard.writeText(START_MINT); notify("Contract address copied"); }
     catch { notify("Could not copy the contract address"); }
   };
